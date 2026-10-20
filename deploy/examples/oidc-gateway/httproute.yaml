@@ -1,0 +1,20 @@
+# Attaches to a Gateway you already run (with TLS for ehconsole.example.com). Only the UI/API port
+# is routed: the metrics port (9090) has no auth and stays in-cluster.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: eh-k8s-console
+  labels:
+    app.kubernetes.io/name: eh-k8s-console
+    app.kubernetes.io/part-of: eh-k8s-console
+spec:
+  parentRefs:
+    - name: shared-gateway        # your Gateway
+      namespace: gateway-system   # and its namespace (allow routes from extrahop there)
+      sectionName: https
+  hostnames:
+    - ehconsole.example.com
+  rules:
+    - backendRefs:
+        - name: eh-k8s-console
+          port: 80

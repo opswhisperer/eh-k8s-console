@@ -1,0 +1,75 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: eh-k8s-console
+  labels:
+    app.kubernetes.io/name: eh-k8s-console
+    app.kubernetes.io/part-of: eh-k8s-console
+spec:
+  groups:
+    - name: extrahop-integration
+      rules:
+        - alert: EHSensorCertBroken
+          expr: max(ehk_cert_state{state=~"BROKEN|SNI_MISMATCH|INVALID_BUNDLE"}) == 1
+          for: 5m
+          labels: { severity: critical }
+          annotations:
+            summary: "ExtraHop forwarders cannot trust the sensor's certificate"
+            description: "sensorCert does not verify the sensor's current certificate (state {{ $labels.state }}). Metadata and session keys are not reaching the sensor. Refresh it on the console's Sensor certificate page."
+        - alert: EHSensorCertExpiring
+          expr: (min(ehk_cert_not_after_seconds{source="live",role=~"leaf|self-signed"}) - time()) < 21 * 86400
+          for: 1h
+          labels: { severity: warning }
+          annotations:
+            summary: "The ExtraHop sensor's certificate expires in {{ $value | humanizeDuration }}"
+            description: "If the sensor renews automatically, its renewal is failing."
+        - alert: EHSensorCertExpiringSoon
+          expr: (min(ehk_cert_not_after_seconds{source="live",role=~"leaf|self-signed"}) - time()) < 7 * 86400
+          for: 1h
+          labels: { severity: critical }
+          annotations:
+            summary: "The ExtraHop sensor's certificate expires in {{ $value | humanizeDuration }}"
+        - alert: EHSensorCertRotated
+          expr: ehk_cert_leaf_changed == 1 and on() ehk_cert_trusted_by_bundle == 1
+          for: 1h
+          labels: { severity: info }
+          annotations:
+            summary: "The ExtraHop sensor renewed its certificate; sensorCert still trusts it"
+        - alert: EHSensorUnreachable
+          expr: ehk_cert_probe_success == 0
+          for: 30m
+          labels: { severity: warning }
+          annotations:
+            summary: "The console cannot reach the ExtraHop sensor's management interface"
+        - alert: EHIntegrationConfigInvalid
+          expr: sum(ehk_findings{severity="critical",source=~"config|network|runtime"}) > 0
+          for: 10m
+          labels: { severity: critical }
+          annotations:
+            summary: "The ExtraHop integration has {{ $value }} critical configuration problem(s)"
+            description: "Open the console's Overview for details and fixes."
+        - alert: EHComponentNotReady
+          expr: ehk_workload_ready < ehk_workload_desired
+          for: 15m
+          labels: { severity: warning }
+          annotations:
+            summary: "ExtraHop {{ $labels.component }}: {{ $value }} pods ready"
+        - alert: EHComponentDown
+          expr: ehk_workload_ready == 0 and ehk_workload_desired > 0
+          for: 5m
+          labels: { severity: critical }
+          annotations:
+            summary: "ExtraHop {{ $labels.component }} has no ready pods"
+        - alert: EHForwarderErrorsHigh
+          expr: max by (component, signature) (ehk_log_error_signatures{level="error"}) > 120
+          for: 30m
+          labels: { severity: warning }
+          annotations:
+            summary: "ExtraHop {{ $labels.component }} logs {{ $value }} errors/h"
+            description: "{{ $labels.signature }}"
+        - alert: EHConsoleNotScanning
+          expr: ehk_scan_success == 0 or (time() - ehk_last_scan_timestamp_seconds) > 1800
+          for: 15m
+          labels: { severity: warning }
+          annotations:
+            summary: "eh-k8s-console has not completed a scan recently"

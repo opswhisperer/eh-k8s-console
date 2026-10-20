@@ -1,0 +1,133 @@
+# eh-k8s-console configuration: every key, with its default.
+# Secret values never go in this file. Each one names a file (a mounted Secret, plain or synced
+# by an ExternalSecret, or a CSI volume) or an environment variable: { file: … } or { env: … }.
+
+# Where the UI and API listen. /metrics is served separately (serve -metrics-listen, default :9090).
+listen: ":8080"
+# The console's public URL. Required for OIDC (it builds the redirect URL /auth/callback).
+baseURL: https://ehconsole.example.com
+# Never change the cluster: review and export only. Same as `serve -read-only`.
+readOnly: false
+
+kube:
+  # Empty: the in-cluster service account, else KUBECONFIG / ~/.kube/config.
+  kubeconfig: ""
+  context: ""
+
+# Where the ExtraHop Kubernetes integration lives. The defaults match the sensor-generated
+# manifests and the official Helm chart.
+integration:
+  namespace: extrahop
+  prefix: extrahop-kubernetes-integration-
+  configMap: extrahop-kubernetes-integration-cm
+  # How mirrorNamespaces/skipNamespaces are written: "," (the documented form) or " " if your
+  # traffic-forwarder build expects spaces. The console rewrites lists in this form when you save.
+  listSeparator: ","
+  # List and edit the extrahop.com/traffic-mirror-rule annotation on pods, workload pod
+  # templates and nodes. Needs the cluster-wide RBAC in deploy/components/annotations.
+  annotations:
+    enabled: false
+    allowNamespaces: []          # empty: every namespace not excluded
+    excludeNamespaces: [kube-system, kube-public, kube-node-lease]
+    maxTargets: 200              # cap for one selector-based edit
+
+auth:
+  # Any of: oidc, local, apikey, proxy. "none" (no sign-in) is for local development only and
+  # refuses to listen on a non-loopback address unless serve -insecure-no-auth is given.
+  modes: [oidc, apikey]
+  # Signs session cookies. 32+ characters. Without it sessions end when the pod restarts.
+  sessionSecret: { file: /secrets/session-secret }
+  sessionTTL: 12h
+  # Role for a signed-in user whose groups match no mapping. Empty: refuse them.
+  # Roles: viewer (read, logs, preview), operator (+ certificate refresh, restarts, annotate
+  # running pods/nodes), admin (+ every setting, secrets, workload templates, rollback).
+  defaultRole: ""
+
+  oidc:
+    issuer: https://auth.example.com/application/o/eh-k8s-console/
+    clientID: eh-k8s-console
+    clientSecret: { file: /secrets/oidc-client-secret }
+    scopes: [openid, profile, email, groups]
+    groupsClaim: groups
+    displayName: single sign-on
+    roles:                       # IdP group -> role (highest wins)
+      platform-admins: admin
+      platform-oncall: operator
+      security: viewer
+
+  local:
+    # YAML list: - { username: rob, passwordHash: <bcrypt>, role: admin }
+    # Hash with: eh-k8s-console hash-password. The file is re-read when it changes.
+    usersFile: /secrets/users.yaml
+
+  apiKeys:
+    # YAML list: - { name: ci, hash: <sha256 hex>, role: viewer }
+    # Create with: eh-k8s-console new-api-key -name ci -role viewer. Send as
+    # "Authorization: Bearer ehk_…". Re-read when the file changes (rotating the Secret revokes).
+    file: /secrets/api-keys.yaml
+
+  proxy:
+    # Identity headers from an authenticating proxy (e.g. forward auth). Trusted only from these
+    # source addresses: the proxy's pod/node range, never 0.0.0.0/0.
+    trustedCIDRs: [10.244.0.0/16]
+    userHeader: X-Forwarded-User
+    groupsHeader: X-Forwarded-Groups
+    emailHeader: X-Forwarded-Email
+    roles:
+      platform-admins: admin
+
+certs:
+  probePort: 443                 # the sensor's management port
+  sessionKeyPort: 4873           # checked when the session-key forwarder is installed
+  probeTimeout: 5s
+  leafWarnDays: 21               # sensor certificate expiry warnings
+  leafCriticalDays: 7
+  anchorWarnDays: 30             # expiry of the bundle certificate that anchors trust
+  # Follow the sensor's certificate automatically when it changes and still verifies against
+  # public roots with a matching name. Stores the CA chain only. Never for self-signed.
+  autoSync: false
+  # Or keep sensorCert equal to a key you manage elsewhere (cert-manager ca.crt, trust-manager
+  # bundle). The new value must trust the sensor before it is applied.
+  # source: { kind: Secret, namespace: extrahop, name: sensor-ca, key: ca.crt }
+
+alerts:
+  # Kubernetes Events on the integration ConfigMap when a problem starts or ends.
+  events: true
+  # Sent when a finding starts or stops (state kept in ConfigMap eh-k8s-console-alerts, so a
+  # restart does not repeat alerts). Formats: apprise, slack, json.
+  webhooks:
+    - name: apprise
+      url: http://apprise.apps.svc.cluster.local:8000/notify/ops
+      format: apprise
+      tag: extrahop
+      minSeverity: warning       # info | warning | critical
+    - name: chat
+      urlFrom: { file: /secrets/slack-webhook-url }
+      format: slack
+      minSeverity: critical
+
+history:
+  keep: 20                       # revisions kept (ConfigMaps eh-k8s-console-rev-NNNNN)
+
+logs:
+  tailLines: 500                 # backlog per container in the log viewer
+  signatureWindow: 1h            # recurring-error counting window
+  warnPerHour: 30                # a recurring error at this rate becomes a warning
+  ignore: []                     # regexes of signatures to leave out of findings and alerts
+
+# The "what gets mirrored" preview on the Traffic filtering page. The console doesn't assume how
+# your traffic-forwarder version evaluates the rules: list the steps in that version's order, first
+# match wins (see docs/filtering.md). Empty: the preview is off; editing still works.
+policy:
+  order: []
+  #   - annotation:skip          a peer annotated skip -> skip
+  #   - annotation:mirror        a peer annotated mirror -> mirror
+  #   - namespace:skip-list      a pod peer in Skip namespaces -> skip
+  #   - namespace:mirror-list    a pod peer in Mirror namespaces -> mirror
+  #   - namespace:rule           a pod peer -> kubernetesNamespacedTrafficRule
+  #   - cluster:rule             any Kubernetes peer -> kubernetesBaseTrafficRule
+  # Kinds whose extrahop.com/traffic-mirror-rule annotation your version reads (e.g. [Pod, Node]).
+  # Annotations on other kinds are then flagged. Empty: no check.
+  annotationKinds: []
+
+scanInterval: 5m

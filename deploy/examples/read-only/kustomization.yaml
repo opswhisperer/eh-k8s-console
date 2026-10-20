@@ -1,0 +1,9 @@
+# A console that can look but never change anything: no write RBAC, started with -read-only.
+# Good for security teams or a first try.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: extrahop
+resources:
+  - ../../base
+components:
+  - ../../components/read-only

@@ -1,0 +1,711 @@
+{
+  "apiVersion": "v1",
+  "kind": "List",
+  "items": [
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "annotations": {},
+        "labels": {
+          "app.kubernetes.io/component": "exkpkt-coordinator",
+          "app.kubernetes.io/instance": "extrahop-kubernetes-integration",
+          "app.kubernetes.io/name": "extrahop-kubernetes-integration",
+          "app.kubernetes.io/part-of": "extrahop-kubernetes-integration"
+        },
+        "name": "extrahop-kubernetes-integration-exkpkt-coordinator",
+        "namespace": "extrahop"
+      },
+      "spec": {
+        "progressDeadlineSeconds": 600,
+        "replicas": 1,
+        "revisionHistoryLimit": 10,
+        "selector": {
+          "matchLabels": {
+            "app.kubernetes.io/component": "exkpkt-coordinator",
+            "app.kubernetes.io/instance": "extrahop-kubernetes-integration",
+            "app.kubernetes.io/name": "extrahop-kubernetes-integration"
+          }
+        },
+        "strategy": {
+          "rollingUpdate": {
+            "maxSurge": "25%",
+            "maxUnavailable": "25%"
+          },
+          "type": "RollingUpdate"
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app.kubernetes.io/component": "exkpkt-coordinator",
+              "app.kubernetes.io/instance": "extrahop-kubernetes-integration",
+              "app.kubernetes.io/name": "extrahop-kubernetes-integration"
+            }
+          },
+          "spec": {
+            "containers": [
+              {
+                "env": [
+                  {
+                    "name": "MODE",
+                    "value": "coordinator"
+                  },
+                  {
+                    "name": "KUBERNETES_BASE_TRAFFIC_RULE",
+                    "valueFrom": {
+                      "configMapKeyRef": {
+                        "key": "kubernetesBaseTrafficRule",
+                        "name": "extrahop-kubernetes-integration-cm"
+                      }
+                    }
+                  },
+                  {
+                    "name": "KUBERNETES_NAMESPACED_TRAFFIC_RULE",
+                    "valueFrom": {
+                      "configMapKeyRef": {
+                        "key": "kubernetesNamespacedTrafficRule",
+                        "name": "extrahop-kubernetes-integration-cm"
+                      }
+                    }
+                  },
+                  {
+                    "name": "MIRROR_NAMESPACES",
+                    "valueFrom": {
+                      "configMapKeyRef": {
+                        "key": "mirrorNamespaces",
+                        "name": "extrahop-kubernetes-integration-cm"
+                      }
+                    }
+                  },
+                  {
+                    "name": "SKIP_NAMESPACES",
+                    "valueFrom": {
+                      "configMapKeyRef": {
+                        "key": "skipNamespaces",
+                        "name": "extrahop-kubernetes-integration-cm"
+                      }
+                    }
+                  },
+                  {
+                    "name": "COORDINATOR_SECRET",
+                    "valueFrom": {
+                      "secretKeyRef": {
+                        "key": "secret",
+                        "name": "extrahop-kubernetes-integration-exkpkt-coordinator"
+                      }
+                    }
+                  },
+                  {
+                    "name": "COORDINATOR_PUBLIC",
+                    "valueFrom": {
+                      "configMapKeyRef": {
+                        "key": "exkpktCoordinatorPublic",
+                        "name": "extrahop-kubernetes-integration-cm"
+                      }
+                    }
+                  },
+                  {
+                    "name": "FORWARDER_PUBLIC",
+                    "valueFrom": {
+                      "configMapKeyRef": {
+                        "key": "exkpktForwarderPublic",
+                        "name": "extrahop-kubernetes-integration-cm"
+                      }
+                    }
+                  }
+                ],
+                "image": "public.ecr.aws/extrahop/kubernetes-traffic-forwarder:v1.2.2",
+                "imagePullPolicy": "IfNotPresent",
+                "name": "exkpkt",
+                "resources": {},
+                "securityContext": {
+                  "allowPrivilegeEscalation": false,
+                  "capabilities": {
+                    "add": [
+                      "NET_ADMIN",
+                      "NET_RAW",
+                      "SYS_ADMIN"
+                    ],
+                    "drop": [
+                      "all"
+                    ]
+                  },
+                  "privileged": false
+                },
+                "terminationMessagePath": "/dev/termination-log",
+                "terminationMessagePolicy": "File"
+              }
+            ],
+            "dnsConfig": {
+              "options": [
+                {
+                  "name": "ndots",
+                  "value": "2"
+                }
+              ]
+            },
+            "dnsPolicy": "ClusterFirst",
+            "restartPolicy": "Always",
+            "schedulerName": "default-scheduler",
+            "securityContext": {
+              "fsGroup": 12162,
+              "runAsGroup": 12162,
+              "runAsNonRoot": true,
+              "runAsUser": 12162
+            },
+            "serviceAccount": "extrahop-kubernetes-integration-service-account",
+            "serviceAccountName": "extrahop-kubernetes-integration-service-account",
+            "terminationGracePeriodSeconds": 30
+          }
+        }
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "annotations": {},
+        "labels": {
+          "app.kubernetes.io/component": "metadata-forwarder",
+          "app.kubernetes.io/instance": "extrahop-kubernetes-integration",
+          "app.kubernetes.io/name": "extrahop-kubernetes-integration",
+          "app.kubernetes.io/part-of": "extrahop-kubernetes-integration"
+        },
+        "name": "extrahop-kubernetes-integration-metadata-forwarder",
+        "namespace": "extrahop"
+      },
+      "spec": {
+        "progressDeadlineSeconds": 600,
+        "replicas": 1,
+        "revisionHistoryLimit": 10,
+        "selector": {
+          "matchLabels": {
+            "app.kubernetes.io/component": "metadata-forwarder",
+            "app.kubernetes.io/instance": "extrahop-kubernetes-integration",
+            "app.kubernetes.io/name": "extrahop-kubernetes-integration"
+          }
+        },
+        "strategy": {
+          "rollingUpdate": {
+            "maxSurge": "25%",
+            "maxUnavailable": "25%"
+          },
+          "type": "RollingUpdate"
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app.kubernetes.io/component": "metadata-forwarder",
+              "app.kubernetes.io/instance": "extrahop-kubernetes-integration",
+              "app.kubernetes.io/name": "extrahop-kubernetes-integration"
+            }
+          },
+          "spec": {
+            "containers": [
+              {
+                "env": [
+                  {
+                    "name": "NODE_NAME",
+                    "valueFrom": {
+                      "fieldRef": {
+                        "apiVersion": "v1",
+                        "fieldPath": "spec.nodeName"
+                      }
+                    }
+                  },
+                  {
+                    "name": "KUBERNETES_CLUSTER_NAME",
+                    "valueFrom": {
+                      "configMapKeyRef": {
+                        "key": "clusterName",
+                        "name": "extrahop-kubernetes-integration-cm"
+                      }
+                    }
+                  },
+                  {
+                    "name": "SENSOR_HOST",
+                    "valueFrom": {
+                      "configMapKeyRef": {
+                        "key": "mgmtTarget",
+                        "name": "extrahop-kubernetes-integration-cm"
+                      }
+                    }
+                  },
+                  {
+                    "name": "SENSOR_APIKEY",
+                    "valueFrom": {
+                      "secretKeyRef": {
+                        "key": "apiKey",
+                        "name": "extrahop-kubernetes-integration-sensor-api-credentials"
+                      }
+                    }
+                  },
+                  {
+                    "name": "CERT_FILENAME",
+                    "value": "/certs/sensor.crt"
+                  },
+                  {
+                    "name": "SERVER_NAME_OVERRIDE",
+                    "valueFrom": {
+                      "configMapKeyRef": {
+                        "key": "serverNameOverride",
+                        "name": "extrahop-kubernetes-integration-cm"
+                      }
+                    }
+                  }
+                ],
+                "image": "public.ecr.aws/extrahop/kubernetes-metadata-forwarder:v1.1.2",
+                "imagePullPolicy": "IfNotPresent",
+                "name": "metadata-forwarder",
+                "ports": [
+                  {
+                    "containerPort": 2112,
+                    "protocol": "TCP"
+                  }
+                ],
+                "resources": {},
+                "terminationMessagePath": "/dev/termination-log",
+                "terminationMessagePolicy": "File",
+                "volumeMounts": [
+                  {
+                    "mountPath": "/certs",
+                    "name": "sensor-cert"
+                  }
+                ]
+              }
+            ],
+            "dnsConfig": {
+              "options": [
+                {
+                  "name": "ndots",
+                  "value": "2"
+                }
+              ]
+            },
+            "dnsPolicy": "ClusterFirst",
+            "restartPolicy": "Always",
+            "schedulerName": "default-scheduler",
+            "securityContext": {},
+            "serviceAccount": "extrahop-kubernetes-integration-service-account",
+            "serviceAccountName": "extrahop-kubernetes-integration-service-account",
+            "terminationGracePeriodSeconds": 30,
+            "volumes": [
+              {
+                "configMap": {
+                  "defaultMode": 420,
+                  "items": [
+                    {
+                      "key": "sensorCert",
+                      "path": "sensor.crt"
+                    }
+                  ],
+                  "name": "extrahop-kubernetes-integration-cm"
+                },
+                "name": "sensor-cert"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "DaemonSet",
+      "metadata": {
+        "annotations": {},
+        "labels": {
+          "app.kubernetes.io/component": "exkpkt-forwarder",
+          "app.kubernetes.io/instance": "extrahop-kubernetes-integration",
+          "app.kubernetes.io/name": "extrahop-kubernetes-integration",
+          "app.kubernetes.io/part-of": "extrahop-kubernetes-integration"
+        },
+        "name": "extrahop-kubernetes-integration-exkpkt-forwarder",
+        "namespace": "extrahop"
+      },
+      "spec": {
+        "revisionHistoryLimit": 10,
+        "selector": {
+          "matchLabels": {
+            "app.kubernetes.io/component": "exkpkt-forwarder",
+            "app.kubernetes.io/instance": "extrahop-kubernetes-integration",
+            "app.kubernetes.io/name": "extrahop-kubernetes-integration"
+          }
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app.kubernetes.io/component": "exkpkt-forwarder",
+              "app.kubernetes.io/instance": "extrahop-kubernetes-integration",
+              "app.kubernetes.io/name": "extrahop-kubernetes-integration"
+            }
+          },
+          "spec": {
+            "automountServiceAccountToken": false,
+            "containers": [
+              {
+                "env": [
+                  {
+                    "name": "MODE",
+                    "value": "forwarder"
+                  },
+                  {
+                    "name": "COORDINATOR",
+                    "value": "extrahop-kubernetes-integration-exkpkt-coordinator.extrahop.svc.cluster.local"
+                  },
+                  {
+                    "name": "NODE_IP",
+                    "valueFrom": {
+                      "fieldRef": {
+                        "apiVersion": "v1",
+                        "fieldPath": "status.hostIP"
+                      }
+                    }
+                  },
+                  {
+                    "name": "MIRROR_TARGET",
+                    "valueFrom": {
+                      "configMapKeyRef": {
+                        "key": "mirrorTarget",
+                        "name": "extrahop-kubernetes-integration-cm"
+                      }
+                    }
+                  },
+                  {
+                    "name": "FORWARDER_SECRET",
+                    "valueFrom": {
+                      "secretKeyRef": {
+                        "key": "secret",
+                        "name": "extrahop-kubernetes-integration-exkpkt-forwarder"
+                      }
+                    }
+                  },
+                  {
+                    "name": "FORWARDER_PUBLIC",
+                    "valueFrom": {
+                      "configMapKeyRef": {
+                        "key": "exkpktForwarderPublic",
+                        "name": "extrahop-kubernetes-integration-cm"
+                      }
+                    }
+                  },
+                  {
+                    "name": "COORDINATOR_PUBLIC",
+                    "valueFrom": {
+                      "configMapKeyRef": {
+                        "key": "exkpktCoordinatorPublic",
+                        "name": "extrahop-kubernetes-integration-cm"
+                      }
+                    }
+                  }
+                ],
+                "image": "public.ecr.aws/extrahop/kubernetes-traffic-forwarder:v1.2.2",
+                "imagePullPolicy": "IfNotPresent",
+                "name": "exkpkt",
+                "resources": {},
+                "securityContext": {
+                  "allowPrivilegeEscalation": false,
+                  "capabilities": {
+                    "add": [
+                      "NET_ADMIN",
+                      "NET_RAW",
+                      "SYS_ADMIN"
+                    ],
+                    "drop": [
+                      "all"
+                    ]
+                  },
+                  "privileged": false
+                },
+                "terminationMessagePath": "/dev/termination-log",
+                "terminationMessagePolicy": "File"
+              }
+            ],
+            "dnsConfig": {
+              "options": [
+                {
+                  "name": "ndots",
+                  "value": "2"
+                }
+              ]
+            },
+            "dnsPolicy": "ClusterFirstWithHostNet",
+            "hostNetwork": true,
+            "restartPolicy": "Always",
+            "schedulerName": "default-scheduler",
+            "securityContext": {
+              "fsGroup": 12162,
+              "runAsGroup": 12162,
+              "runAsNonRoot": true,
+              "runAsUser": 12162
+            },
+            "serviceAccount": "extrahop-kubernetes-integration-service-account",
+            "serviceAccountName": "extrahop-kubernetes-integration-service-account",
+            "terminationGracePeriodSeconds": 30
+          }
+        },
+        "updateStrategy": {
+          "rollingUpdate": {
+            "maxSurge": 0,
+            "maxUnavailable": 1
+          },
+          "type": "RollingUpdate"
+        }
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "DaemonSet",
+      "metadata": {
+        "annotations": {},
+        "labels": {
+          "app.kubernetes.io/component": "session-key-forwarder",
+          "app.kubernetes.io/instance": "extrahop-kubernetes-integration",
+          "app.kubernetes.io/name": "extrahop-kubernetes-integration",
+          "app.kubernetes.io/part-of": "extrahop-kubernetes-integration"
+        },
+        "name": "extrahop-kubernetes-integration-session-key-forwarder",
+        "namespace": "extrahop"
+      },
+      "spec": {
+        "revisionHistoryLimit": 10,
+        "selector": {
+          "matchLabels": {
+            "app.kubernetes.io/component": "session-key-forwarder",
+            "app.kubernetes.io/instance": "extrahop-kubernetes-integration",
+            "app.kubernetes.io/name": "extrahop-kubernetes-integration"
+          }
+        },
+        "template": {
+          "metadata": {
+            "annotations": {
+              "kubectl.kubernetes.io/restartedAt": "2026-07-07T07:52:55-07:00"
+            },
+            "labels": {
+              "app.kubernetes.io/component": "session-key-forwarder",
+              "app.kubernetes.io/instance": "extrahop-kubernetes-integration",
+              "app.kubernetes.io/name": "extrahop-kubernetes-integration"
+            }
+          },
+          "spec": {
+            "automountServiceAccountToken": false,
+            "containers": [
+              {
+                "args": [
+                  "-server",
+                  "192.0.2.10",
+                  "-server-name-override",
+                  "sensor.example.com",
+                  "-cert",
+                  "/certs/sensor.crt",
+                  "-docker-enable=false",
+                  "-containerd-enable",
+                  "-containerd-socket",
+                  "/run/containerd/containerd.sock",
+                  "-containerd-state",
+                  "/run/containerd",
+                  "-docker-go-binary",
+                  "/*",
+                  "-docker-go-binary",
+                  "/bin/*",
+                  "-docker-go-binary",
+                  "/usr/local/bin/*",
+                  "-go-binary",
+                  "/opt/bin/*",
+                  "-go-binary",
+                  "/opt/*/bin/*",
+                  "-go-binary",
+                  "/usr/bin/*",
+                  "-host-mount-path",
+                  "/host",
+                  "-wait-for-children"
+                ],
+                "image": "public.ecr.aws/extrahop/session-key-forwarder:v10.3.1",
+                "imagePullPolicy": "IfNotPresent",
+                "name": "session-key-forwarder",
+                "resources": {},
+                "securityContext": {
+                  "privileged": true
+                },
+                "terminationMessagePath": "/dev/termination-log",
+                "terminationMessagePolicy": "File",
+                "volumeMounts": [
+                  {
+                    "mountPath": "/sys",
+                    "name": "sys"
+                  },
+                  {
+                    "mountPath": "/run/containerd",
+                    "name": "containerd-state"
+                  },
+                  {
+                    "mountPath": "/var/lib/containerd",
+                    "name": "containerd-root"
+                  },
+                  {
+                    "mountPath": "/run/containerd/containerd.sock",
+                    "name": "containerd-socket"
+                  },
+                  {
+                    "mountPath": "/host",
+                    "name": "host"
+                  },
+                  {
+                    "mountPath": "/certs",
+                    "name": "sensor-cert"
+                  }
+                ]
+              }
+            ],
+            "dnsConfig": {
+              "options": [
+                {
+                  "name": "ndots",
+                  "value": "2"
+                }
+              ]
+            },
+            "dnsPolicy": "ClusterFirst",
+            "hostNetwork": true,
+            "hostPID": true,
+            "restartPolicy": "Always",
+            "schedulerName": "default-scheduler",
+            "securityContext": {},
+            "serviceAccount": "extrahop-kubernetes-integration-service-account",
+            "serviceAccountName": "extrahop-kubernetes-integration-service-account",
+            "terminationGracePeriodSeconds": 30,
+            "tolerations": [
+              {
+                "key": "node-role.kubernetes.io/control-plane",
+                "operator": "Exists"
+              }
+            ],
+            "volumes": [
+              {
+                "hostPath": {
+                  "path": "/sys",
+                  "type": "Directory"
+                },
+                "name": "sys"
+              },
+              {
+                "hostPath": {
+                  "path": "/run/containerd",
+                  "type": "Directory"
+                },
+                "name": "containerd-state"
+              },
+              {
+                "hostPath": {
+                  "path": "/var/lib/containerd",
+                  "type": "Directory"
+                },
+                "name": "containerd-root"
+              },
+              {
+                "hostPath": {
+                  "path": "/run/containerd/containerd.sock",
+                  "type": "Socket"
+                },
+                "name": "containerd-socket"
+              },
+              {
+                "hostPath": {
+                  "path": "/",
+                  "type": "Directory"
+                },
+                "name": "host"
+              },
+              {
+                "configMap": {
+                  "defaultMode": 420,
+                  "items": [
+                    {
+                      "key": "sensorCert",
+                      "path": "sensor.crt"
+                    }
+                  ],
+                  "name": "extrahop-kubernetes-integration-cm"
+                },
+                "name": "sensor-cert"
+              }
+            ]
+          }
+        },
+        "updateStrategy": {
+          "rollingUpdate": {
+            "maxSurge": 0,
+            "maxUnavailable": 1
+          },
+          "type": "RollingUpdate"
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Service",
+      "metadata": {
+        "annotations": {},
+        "labels": {
+          "app.kubernetes.io/component": "exkpkt-coordinator",
+          "app.kubernetes.io/instance": "extrahop-kubernetes-integration",
+          "app.kubernetes.io/name": "extrahop-kubernetes-integration",
+          "app.kubernetes.io/part-of": "extrahop-kubernetes-integration"
+        },
+        "name": "extrahop-kubernetes-integration-exkpkt-coordinator",
+        "namespace": "extrahop"
+      },
+      "spec": {
+        "clusterIP": "10.107.111.133",
+        "clusterIPs": [
+          "10.107.111.133"
+        ],
+        "internalTrafficPolicy": "Cluster",
+        "ipFamilies": [
+          "IPv4"
+        ],
+        "ipFamilyPolicy": "SingleStack",
+        "ports": [
+          {
+            "port": 12162,
+            "protocol": "TCP",
+            "targetPort": 12162
+          }
+        ],
+        "selector": {
+          "app.kubernetes.io/component": "exkpkt-coordinator",
+          "app.kubernetes.io/instance": "extrahop-kubernetes-integration",
+          "app.kubernetes.io/name": "extrahop-kubernetes-integration"
+        },
+        "sessionAffinity": "None",
+        "type": "ClusterIP"
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "data": {
+        "clusterName": "demo",
+        "exkpktCoordinatorPublic": "e7ab5ac686ad182a71d51a8f2b6dd11faaab49cd5e5da9db0f32683153d153f3",
+        "exkpktForwarderPublic": "2d1a0e76f3e7f8ac92546e5f4b7e774a74209eaf2d61544030b51510f62b9d46",
+        "kubernetesBaseTrafficRule": "mirror",
+        "kubernetesNamespacedTrafficRule": "mirror",
+        "mgmtTarget": "192.0.2.10",
+        "mirrorNamespaces": "",
+        "mirrorTarget": "192.0.2.10:6081",
+        "sensorCert": "-----BEGIN CERTIFICATE-----\nMIIBjDCCATOgAwIBAgIUfynecMcSiX+uyDQApfXlRZy49tMwCgYIKoZIzj0EAwIw\nHTEbMBkGA1UEAwwSc2Vuc29yLmV4YW1wbGUuY29tMB4XDTI2MTAyMDEzMjUxOFoX\nDTM2MTAxNzEzMjUxOFowHTEbMBkGA1UEAwwSc2Vuc29yLmV4YW1wbGUuY29tMFkw\nEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEUXehl1QoV2vQfC/rdSR2dNWP24qmBVJu\nbGnTtDBNA175NEauW5ONPTEVkJg/xYG/3rnjmDnfrHc1lGhZ2SUwXaNRME8wHQYD\nVR0OBBYEFK1CcY86zB5zjbiq+ozXqoKW6yaWMA8GA1UdEwEB/wQFMAMBAf8wHQYD\nVR0RBBYwFIISc2Vuc29yLmV4YW1wbGUuY29tMAoGCCqGSM49BAMCA0cAMEQCIHXk\n67fd8YZ4FFHfSWiWLBSA7dLxbFpw4tdcKuQ4bhOoAiBhj9sMnshGQmqKUNEyQwyf\ndHW1ncNAkQox/MGt1uKFDA==\n-----END CERTIFICATE-----",
+        "serverNameOverride": "sensor.example.com",
+        "skipNamespaces": ""
+      },
+      "kind": "ConfigMap",
+      "metadata": {
+        "annotations": {},
+        "labels": {
+          "app.kubernetes.io/instance": "extrahop-kubernetes-integration",
+          "app.kubernetes.io/name": "extrahop-kubernetes-integration",
+          "app.kubernetes.io/part-of": "extrahop-kubernetes-integration"
+        },
+        "name": "extrahop-kubernetes-integration-cm",
+        "namespace": "extrahop"
+      }
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: eh-k8s-console
+  labels:
+    app.kubernetes.io/name: eh-k8s-console
+    app.kubernetes.io/part-of: eh-k8s-console
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: eh-k8s-console
+  endpoints:
+    - port: metrics
+      interval: 60s

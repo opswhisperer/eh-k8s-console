@@ -1,0 +1,7 @@
+# Optional: list and edit the extrahop.com/traffic-mirror-rule annotation on pods, workload pod
+# templates and nodes anywhere in the cluster. Also set integration.annotations.enabled: true in
+# the config. Scope edits with integration.annotations.allowNamespaces / excludeNamespaces.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - rbac.yaml

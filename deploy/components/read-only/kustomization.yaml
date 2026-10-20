@@ -1,0 +1,31 @@
+# Optional: a console that can look but never change anything. Removes every write permission
+# and starts the server with -read-only (no applies, annotations, alert state or Events).
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+patches:
+  - target: { kind: Role, name: eh-k8s-console }
+    patch: |
+      - op: replace
+        path: /rules
+        value:
+          - apiGroups: [""]
+            resources: [configmaps, pods, pods/log, services, events]
+            verbs: [get, list, watch]
+          - apiGroups: [""]
+            resources: [secrets]
+            resourceNames:
+              - extrahop-kubernetes-integration-sensor-api-credentials
+              - extrahop-kubernetes-integration-exkpkt-coordinator
+              - extrahop-kubernetes-integration-exkpkt-forwarder
+            verbs: [get]
+          - apiGroups: [apps]
+            resources: [deployments, daemonsets]
+            verbs: [get, list, watch]
+          - apiGroups: [external-secrets.io]
+            resources: [externalsecrets]
+            verbs: [get, list]
+  - target: { kind: Deployment, name: eh-k8s-console }
+    patch: |
+      - op: add
+        path: /spec/template/spec/containers/0/args/-
+        value: -read-only

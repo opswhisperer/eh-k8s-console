@@ -1,0 +1,3 @@
+/eh-k8s-console
+/dist/
+*.local.yaml

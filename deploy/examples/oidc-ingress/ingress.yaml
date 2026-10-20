@@ -1,0 +1,28 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: eh-k8s-console
+  labels:
+    app.kubernetes.io/name: eh-k8s-console
+    app.kubernetes.io/part-of: eh-k8s-console
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt   # your ClusterIssuer
+    # The log viewer streams server-sent events; don't buffer or time them out early.
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: [ehconsole.example.com]
+      secretName: eh-k8s-console-tls
+  rules:
+    - host: ehconsole.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: eh-k8s-console
+                port:
+                  name: http

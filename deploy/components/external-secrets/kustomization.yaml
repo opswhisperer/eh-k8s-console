@@ -1,0 +1,6 @@
+# Optional: build the console's Secret with External Secrets Operator instead of kubectl.
+# Edit externalsecret.yaml for your store and remote keys.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - externalsecret.yaml

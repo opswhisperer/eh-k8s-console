@@ -1,0 +1,6 @@
+listen: ":8080"
+auth:
+  modes: [local]
+  sessionSecret: { file: /secrets/session-secret }
+  local:
+    usersFile: /secrets/users.yaml

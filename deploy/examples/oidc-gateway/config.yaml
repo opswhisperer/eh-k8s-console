@@ -1,0 +1,26 @@
+# Every key: config/example.yaml.
+listen: ":8080"
+baseURL: https://ehconsole.example.com
+
+auth:
+  modes: [oidc, apikey]
+  sessionSecret: { file: /secrets/session-secret }
+  oidc:
+    issuer: https://idp.example.com/realms/platform   # your provider's issuer URL
+    clientID: eh-k8s-console
+    clientSecret: { file: /secrets/oidc-client-secret }
+    displayName: Company SSO
+    groupsClaim: groups
+    roles:
+      platform-admins: admin
+      platform-oncall: operator
+      security-analysts: viewer
+  apiKeys:
+    file: /secrets/api-keys.yaml
+
+integration:
+  annotations:
+    enabled: true
+
+alerts:
+  events: true

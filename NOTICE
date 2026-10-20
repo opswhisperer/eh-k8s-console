@@ -1,0 +1,16 @@
+eh-k8s-console
+Copyright 2026 Robert Bell
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This is an independent community project. It is not developed, supported, endorsed or sponsored
+by ExtraHop Networks, Inc., and is not affiliated with ExtraHop Networks in any way.
+
+ExtraHop, the ExtraHop logo and RevealX are trademarks of ExtraHop Networks, Inc. The logo files in
+web/static/brand/ are the property of ExtraHop Networks and are not licensed under the Apache
+License; they are included only to identify the product this tool works with. Remove them (and
+the references in web/static/) if you redistribute this software in a way that could suggest
+endorsement by ExtraHop.
+
+Third-party software included in the binary and image is listed, with licenses, in
+THIRD_PARTY_NOTICES.md.

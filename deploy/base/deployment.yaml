@@ -1,0 +1,75 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: eh-k8s-console
+  labels:
+    app.kubernetes.io/name: eh-k8s-console
+    app.kubernetes.io/part-of: eh-k8s-console
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: eh-k8s-console
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: eh-k8s-console
+        app.kubernetes.io/part-of: eh-k8s-console
+    spec:
+      serviceAccountName: eh-k8s-console
+      automountServiceAccountToken: true  # it talks to the Kubernetes API
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: eh-k8s-console
+          image: eh-k8s-console
+          imagePullPolicy: IfNotPresent
+          args: [serve, -config, /config/config.yaml, -metrics-listen, ":9090"]
+          ports:
+            - name: http
+              containerPort: 8080
+            - name: metrics
+              containerPort: 9090
+          volumeMounts:
+            - name: config
+              mountPath: /config
+              readOnly: true
+            # Secret files named in config.yaml (API keys, session secret, OIDC client secret,
+            # local users). Optional: the console refuses to start if a configured one is missing.
+            - name: secrets
+              mountPath: /secrets
+              readOnly: true
+          resources:
+            requests:
+              cpu: 20m
+              memory: 48Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          startupProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 5
+            failureThreshold: 12
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            periodSeconds: 15
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 30
+      volumes:
+        - name: config
+          configMap:
+            name: eh-k8s-console-config
+        - name: secrets
+          secret:
+            secretName: eh-k8s-console
+            optional: true

@@ -1,0 +1,25 @@
+# OIDC sign-in, exposed through an existing Gateway API Gateway, with annotation editing and
+# Prometheus alerts. Copy this directory and replace the example.com values.
+#   kubectl create secret generic eh-k8s-console -n extrahop \
+#     --from-literal=session-secret="$(openssl rand -base64 48)" \
+#     --from-literal=oidc-client-secret='<client secret from your IdP>' \
+#     --from-file=api-keys.yaml=./api-keys.yaml
+#   kubectl apply -k .
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: extrahop
+resources:
+  - ../../base
+  - httproute.yaml
+components:
+  - ../../components/annotations   # optional: edit the mirror annotation cluster-wide
+  - ../../components/prometheus    # optional: needs the Prometheus Operator CRDs
+  # - ../../components/external-secrets   # or create the Secret with External Secrets
+configMapGenerator:
+  - name: eh-k8s-console-config
+    behavior: replace
+    files:
+      - config.yaml
+images:
+  - name: ghcr.io/opswhisperer/eh-k8s-console
+    newTag: latest   # pin a release tag, e.g. 1.0.0

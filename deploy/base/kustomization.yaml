@@ -1,0 +1,20 @@
+# eh-k8s-console in the integration's own namespace (extrahop). It does not create the namespace.
+#   kubectl apply -k deploy/base
+#   kubectl -n extrahop port-forward svc/eh-k8s-console 8080:80   → http://localhost:8080
+# The base config signs in with API keys only; use an overlay for OIDC, local users or a proxy.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: extrahop
+resources:
+  - rbac.yaml
+  - deployment.yaml
+  - service.yaml
+configMapGenerator:
+  # Content-hashed name: a config change rolls the pod.
+  - name: eh-k8s-console-config
+    files:
+      - config.yaml
+images:
+  - name: eh-k8s-console
+    newName: ghcr.io/opswhisperer/eh-k8s-console
+    newTag: latest

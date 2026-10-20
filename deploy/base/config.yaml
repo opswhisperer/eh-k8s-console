@@ -1,0 +1,8 @@
+# Every key: config/example.yaml.
+listen: ":8080"
+auth:
+  modes: [apikey]
+  apiKeys:
+    file: /secrets/api-keys.yaml
+  sessionSecret:
+    file: /secrets/session-secret

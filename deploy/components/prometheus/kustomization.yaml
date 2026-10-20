@@ -1,0 +1,6 @@
+# Optional: scrape /metrics with the Prometheus Operator and load the alert rules.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - servicemonitor.yaml
+  - prometheusrule.yaml

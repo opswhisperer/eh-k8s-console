@@ -1,0 +1,38 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: eh-k8s-console-annotations
+  labels:
+    app.kubernetes.io/name: eh-k8s-console
+    app.kubernetes.io/part-of: eh-k8s-console
+rules:
+  # patch is used only to set/remove extrahop.com/traffic-mirror-rule.
+  - apiGroups: [""]
+    resources: [pods, nodes]
+    verbs: [get, list, patch]
+  - apiGroups: [""]
+    resources: [services]
+    verbs: [list]
+  - apiGroups: [apps]
+    resources: [deployments, statefulsets, daemonsets]
+    verbs: [get, list, patch]
+  # Pod -> ReplicaSet -> Deployment, to persist an annotation on the owning template.
+  - apiGroups: [apps]
+    resources: [replicasets]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: eh-k8s-console-annotations
+  labels:
+    app.kubernetes.io/name: eh-k8s-console
+    app.kubernetes.io/part-of: eh-k8s-console
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: eh-k8s-console-annotations
+subjects:
+  - kind: ServiceAccount
+    name: eh-k8s-console
+    namespace: extrahop
