@@ -50,15 +50,18 @@ def ts(title, desc, exprs, x, y, w=12, h=8, unit="none", stack=False, step=False
                                "tooltip": {"mode": "multi", "sort": "desc"}},
                    "fieldConfig": {"defaults": d, "overrides": []}})
 
-def table(title, desc, expr, x, y, w=12, h=8, rename=None, hide=None, value_name="Value", unit="none", sort=None):
+def table(title, desc, expr, x, y, w=12, h=8, rename=None, hide=None, value_name="Value", unit="none", sort=None, order=None, decimals=None):
+    # order: source column names left to right; long text belongs last so it gets the spare width.
     t = dict(target(expr, instant=True, fmt="table"), refId="A")
-    org = {"excludeByName": {k: True for k in (hide or [])} | {"Time": True}, "renameByName": dict(rename or {}, Value=value_name)}
+    org = {"excludeByName": {k: True for k in (hide or [])} | {"Time": True}, "renameByName": dict(rename or {}, Value=value_name),
+           "indexByName": {k: i for i, k in enumerate(order or [])}}
+    props = [{"id": "unit", "value": unit}] + ([{"id": "decimals", "value": decimals}] if decimals is not None else [])
     p = {"type": "table", "title": title, "description": desc, "id": nid(), "datasource": DS,
          "gridPos": {"h": h, "w": w, "x": x, "y": y}, "targets": [t],
          "transformations": [{"id": "organize", "options": org}],
          "options": {"showHeader": True, "cellHeight": "sm", "sortBy": sort or []},
          "fieldConfig": {"defaults": {"unit": "none", "custom": {"align": "auto", "cellOptions": {"type": "auto"}}},
-                         "overrides": [{"matcher": {"id": "byName", "options": value_name}, "properties": [{"id": "unit", "value": unit}]}]}}
+                         "overrides": [{"matcher": {"id": "byName", "options": value_name}, "properties": props}]}}
     panels.append(p)
 
 RED, ORANGE, GREEN = "red", "orange", "green"
@@ -92,7 +95,8 @@ ts("Findings by severity", "Problems the console finds on each scan.", [(f"sum b
 table("Recurring errors (last scan window)", "Most frequent error and warning messages, ignore rules excluded.",
       f"topk(10, ehk_log_error_signatures{{{NS}}})", 12, 15, value_name="Count",
       hide=["__name__", "container", "endpoint", "instance", "job", "namespace", "pod", "service", "prometheus", "level"],
-      rename={"component": "Component", "signature": "Message"}, sort=[{"displayName": "Count", "desc": True}])
+      rename={"component": "Component", "signature": "Message"}, sort=[{"displayName": "Count", "desc": True}],
+      order=["Value", "component", "signature"])
 table("Current findings", "Every finding in the last scan, by severity, source and code.",
       f"ehk_findings{{{NS}}}", 0, 23, w=24, h=7, value_name="Count",
       hide=["__name__", "container", "endpoint", "instance", "job", "namespace", "pod", "service", "prometheus"],
@@ -102,10 +106,11 @@ row("Sensor certificate", 30)
 table("Certificate expiry", "Days left on every certificate in sensorCert (bundle) and presented by the sensor (live). The anchor column marks the bundle certificate that anchors trust.",
       f"(ehk_cert_not_after_seconds{{{NS}}} - time()) / 86400", 0, 31, w=14, value_name="Days left",
       hide=["__name__", "container", "endpoint", "instance", "job", "namespace", "pod", "service", "prometheus"],
-      rename={"source": "Source", "role": "Role", "subject": "Subject", "fingerprint": "Fingerprint", "anchor": "Anchor"}, sort=[{"displayName": "Days left", "desc": False}])
+      rename={"source": "Source", "role": "Role", "subject": "Subject", "fingerprint": "Fingerprint", "anchor": "Anchor"}, sort=[{"displayName": "Days left", "desc": False}],
+      order=["Value", "source", "role", "anchor", "subject", "fingerprint"], decimals=1, h=9)
 ts("Trust checks", "1 = yes. Trusted: sensorCert verifies the sensor. Public CA: the chain verifies against public roots. Leaf changed: the bundle pins a leaf that's no longer presented. Probe OK: the sensor's certificate could be read.",
    [(f"max(ehk_cert_trusted_by_bundle{{{NS}}})", "trusted by sensorCert"), (f"max(ehk_cert_public_ca{{{NS}}})", "public CA"),
-    (f"max(ehk_cert_leaf_changed{{{NS}}})", "leaf changed"), (f"max(ehk_cert_probe_success{{{NS}}})", "probe OK")], 14, 31, w=10, step=True, minv=0)
+    (f"max(ehk_cert_leaf_changed{{{NS}}})", "leaf changed"), (f"max(ehk_cert_probe_success{{{NS}}})", "probe OK")], 14, 31, w=10, h=9, step=True, minv=0)
 
 dash = {
     "uid": "eh-k8s-console", "title": "ExtraHop Kubernetes integration (eh-k8s-console)",

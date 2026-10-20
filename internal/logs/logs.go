@@ -194,6 +194,8 @@ type Reader struct {
 	Namespace string
 	// Ignore tags lines that ignore rules hide (nil: no rules).
 	Ignore *ignore.Store
+	// Source replaces the Kubernetes log API (tests and the demo environment).
+	Source func(ctx context.Context, t Target, opts *corev1.PodLogOptions) (io.ReadCloser, error)
 }
 
 // tag adds the signature to warnings and errors and marks lines an ignore rule hides.
@@ -212,6 +214,9 @@ func (r *Reader) stream(ctx context.Context, t Target, opts *corev1.PodLogOption
 	o := *opts
 	o.Container = t.Container
 	o.Timestamps = true
+	if r.Source != nil {
+		return r.Source(ctx, t, &o)
+	}
 	return r.Kube.CoreV1().Pods(r.Namespace).GetLogs(t.Pod, &o).Stream(ctx)
 }
 

@@ -774,6 +774,11 @@
               "component": "Component",
               "signature": "Message",
               "Value": "Count"
+            },
+            "indexByName": {
+              "Value": 0,
+              "component": 1,
+              "signature": 2
             }
           }
         }
@@ -864,7 +869,8 @@
               "source": "Source",
               "code": "Code",
               "Value": "Count"
-            }
+            },
+            "indexByName": {}
           }
         }
       ],
@@ -927,7 +933,7 @@
         "uid": "${datasource}"
       },
       "gridPos": {
-        "h": 8,
+        "h": 9,
         "w": 14,
         "x": 0,
         "y": 31
@@ -969,6 +975,14 @@
               "fingerprint": "Fingerprint",
               "anchor": "Anchor",
               "Value": "Days left"
+            },
+            "indexByName": {
+              "Value": 0,
+              "source": 1,
+              "role": 2,
+              "anchor": 3,
+              "subject": 4,
+              "fingerprint": 5
             }
           }
         }
@@ -1003,6 +1017,10 @@
               {
                 "id": "unit",
                 "value": "none"
+              },
+              {
+                "id": "decimals",
+                "value": 1
               }
             ]
           }
@@ -1019,7 +1037,7 @@
         "uid": "${datasource}"
       },
       "gridPos": {
-        "h": 8,
+        "h": 9,
         "w": 10,
         "x": 14,
         "y": 31

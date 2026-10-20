@@ -670,7 +670,17 @@ async function viewLogs() {
       l.ignoredBy ? h("span", { class: "badge", title: "Hidden by ignore rule " + l.ignoredBy }, "ignored") : null,
       l.signature && !l.ignoredBy && canIgnore ? h("button", { class: "link ign-btn", onclick: () => ignoreDialog(l.signature, l.component, reload) }, "Ignore…") : null));
   const redraw = () => { fill(out, ...st.lines.filter(matches).slice(-2000).map(row)); out.scrollTop = out.scrollHeight; count.textContent = `${st.lines.length} lines`; };
+  // #/logs?follow=0 shows the last 15 minutes once, without a live stream (a frozen view).
+  const follow = params.get("follow") !== "0";
+  const loadOnce = async () => {
+    const q = new URLSearchParams({ since: "15m" });
+    if (st.comp) q.set("component", st.comp);
+    if (st.pod) q.set("pod", st.pod);
+    st.lines = (await get("/api/logs?" + q).catch(() => [])) || [];
+    redraw();
+  };
   const connect = () => {
+    if (!follow) return loadOnce();
     if (app.stream) app.stream.close();
     st.lines = []; redraw();
     const q = new URLSearchParams({ tail: "300" });
@@ -717,7 +727,7 @@ async function viewLogs() {
     field("Ignored lines", ignoredSel),
     field("Search", h("input", { type: "search", spellcheck: "false", oninput: (e) => { st.q = e.target.value; redraw(); } })),
     h("label", { class: "check" }, h("input", { type: "checkbox", onchange: (e) => { st.re = e.target.checked; redraw(); } }), "Regex"),
-    h("div", {}, h("button", { onclick: (e) => { st.paused = !st.paused; e.target.textContent = st.paused ? "Resume" : "Pause"; if (!st.paused) redraw(); } }, "Pause"), " ",
+    h("div", {}, follow ? h("button", { onclick: (e) => { st.paused = !st.paused; e.target.textContent = st.paused ? "Resume" : "Pause"; if (!st.paused) redraw(); } }, "Pause") : null, " ",
       h("a", { class: "btn", href: "/api/logs?format=text&since=1h" + (st.comp ? "&component=" + encodeURIComponent(st.comp) : "") }, "Download 1h")));
 
   const sigs = (app.state.logs || []).slice(0, 12);
@@ -739,7 +749,7 @@ async function viewLogs() {
     h("thead", {}, h("tr", {}, ["When", "Type", "Object", "Reason", "Message"].map((x) => h("th", {}, x)))),
     h("tbody", {}, ev.slice(0, 50).map((e) => h("tr", {}, h("td", {}, ago(e.time)), h("td", { class: e.type === "Warning" ? "state warning" : "" }, e.type), h("td", { class: "mono" }, e.object), h("td", {}, e.reason), h("td", {}, e.message)))))) : h("p", { class: "muted" }, "No recent events."))).catch(() => {});
   return [
-    topline("Logs", "Live from every integration pod.", count),
+    topline("Logs", follow ? "Live from every integration pod." : "The last 15 minutes from every integration pod.", count),
     h("h3", {}, `Recurring errors in the last ${window}`),
     sigs.length ? h("ul", { class: "sigs" }, sigs.map((s) => h("li", {},
       h("span", { class: "n" }, s.count),
@@ -751,7 +761,7 @@ async function viewLogs() {
     ruleRows.length ? h("div", { class: "table-wrap" }, h("table", {},
       h("thead", {}, h("tr", {}, ["Pattern", "Source", `Hidden (${window})`, ""].map((x) => h("th", {}, x)))), h("tbody", {}, ruleRows)))
       : h("p", { class: "muted" }, "No ignore rules."),
-    h("h3", {}, "Live logs"),
+    h("h3", {}, follow ? "Live logs" : "Recent logs"),
     controls, ruleNote, out,
     h("h3", {}, "Kubernetes events"), events,
   ];
