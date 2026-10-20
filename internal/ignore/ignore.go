@@ -136,7 +136,21 @@ func Validate(pattern string) (*regexp.Regexp, error) {
 	if re.MatchString("") {
 		return nil, errors.New("the pattern matches everything (it matches an empty string); anchor it to a message")
 	}
+	for _, c := range canaries {
+		if re.MatchString(c) {
+			return nil, errors.New("the pattern is too broad: it matches unrelated messages; make it specific to one error")
+		}
+	}
 	return re, nil
+}
+
+// canaries are unrelated messages no sensible ignore rule should match. A pattern that matches
+// any of them (for example "." or "^.+$") would hide every error.
+var canaries = []string{
+	"q",
+	"zq9 canary: unrelated message",
+	"Canary <n> from eh-k8s-console [never_ignore_me]",
+	"7f3c",
 }
 
 // Suggest builds an exact, anchored pattern for a signature.

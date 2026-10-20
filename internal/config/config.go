@@ -154,6 +154,9 @@ type Auth struct {
 	// DefaultRole is given to an authenticated user who matches no role mapping.
 	// Empty means such users are refused.
 	DefaultRole string `json:"defaultRole"`
+	// SessionsValidAfter (RFC 3339) rejects every session issued before it: set it to now and
+	// restart to sign everyone out.
+	SessionsValidAfter string `json:"sessionsValidAfter"`
 }
 
 type OIDC struct {
@@ -185,6 +188,10 @@ type Proxy struct {
 	TrustedCIDRs []string `json:"trustedCIDRs"`
 	// Roles maps a group from GroupsHeader to a role.
 	Roles map[string]string `json:"roles"`
+	// SharedSecret, when set, must arrive in SharedSecretHeader on every proxied request, so a pod
+	// that merely sits inside TrustedCIDRs can't forge identity headers. Strongly recommended.
+	SharedSecret       SecretRef `json:"sharedSecret"`
+	SharedSecretHeader string    `json:"sharedSecretHeader"`
 }
 
 type Certs struct {
@@ -271,7 +278,7 @@ func (c *Config) applyDefaults() {
 		c.Integration.Annotations.MaxTargets = 200
 	}
 	if c.Auth.SessionTTL.Duration == 0 {
-		c.Auth.SessionTTL.Duration = 12 * time.Hour
+		c.Auth.SessionTTL.Duration = 8 * time.Hour
 	}
 	if len(c.Auth.OIDC.Scopes) == 0 {
 		c.Auth.OIDC.Scopes = []string{"openid", "profile", "email", "groups"}
@@ -287,6 +294,9 @@ func (c *Config) applyDefaults() {
 	}
 	if c.Auth.Proxy.GroupsHeader == "" {
 		c.Auth.Proxy.GroupsHeader = "X-Forwarded-Groups"
+	}
+	if c.Auth.Proxy.SharedSecretHeader == "" {
+		c.Auth.Proxy.SharedSecretHeader = "X-Console-Proxy-Secret"
 	}
 	if c.Auth.Proxy.EmailHeader == "" {
 		c.Auth.Proxy.EmailHeader = "X-Forwarded-Email"
@@ -374,6 +384,14 @@ func (c *Config) Validate() error {
 	}
 	if c.HasMode("local") && c.Auth.Local.UsersFile == "" {
 		errs = append(errs, errors.New("auth.local.usersFile is required"))
+	}
+	if c.HasMode("local") && c.BaseURL == "" {
+		errs = append(errs, errors.New("baseURL is required with local sign-in (it decides whether session cookies are Secure)"))
+	}
+	if v := c.Auth.SessionsValidAfter; v != "" {
+		if _, err := time.Parse(time.RFC3339, v); err != nil {
+			errs = append(errs, fmt.Errorf("auth.sessionsValidAfter: %w", err))
+		}
 	}
 	if c.HasMode("apikey") && c.Auth.APIKeys.File == "" {
 		errs = append(errs, errors.New("auth.apiKeys.file is required"))

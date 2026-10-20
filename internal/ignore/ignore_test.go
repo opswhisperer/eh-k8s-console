@@ -71,3 +71,16 @@ func TestAddRemovePersistAndSources(t *testing.T) {
 		t.Fatal("nil store matches nothing")
 	}
 }
+
+func TestValidateRefusesBroadPatterns(t *testing.T) {
+	for _, p := range []string{".", "^.+$", "[a-z]", `\w`, "<n>", ".{1,}"} {
+		if _, err := Validate(p); err == nil {
+			t.Errorf("%q should be refused as too broad", p)
+		}
+	}
+	for _, p := range []string{Suggest(sig), `device_not_found\]$`, "^stopped reading packets on cali<id>: packet poll failed$", "connection refused"} {
+		if _, err := Validate(p); err != nil {
+			t.Errorf("%q should be allowed: %v", p, err)
+		}
+	}
+}

@@ -68,6 +68,7 @@ func TestLocalLoginRolesAndCSRF(t *testing.T) {
 	adminHash, _ := HashPassword("correct horse")
 	viewHash, _ := HashPassword("viewer pw")
 	c := baseConfig(t, "local")
+	c.BaseURL = "http://127.0.0.1"
 	c.Auth.Local.UsersFile = write(t, "users.yaml", "- username: rob\n  passwordHash: "+adminHash+"\n  role: admin\n- username: val\n  passwordHash: "+viewHash+"\n  role: viewer\n")
 	a, err := New(c, quiet)
 	if err != nil {
@@ -283,5 +284,159 @@ func TestOIDCUserWithoutRoleIsRefused(t *testing.T) {
 	defer srv.Close()
 	if res, _ := do(t, cl, "GET", srv.URL+"/auth/oidc", "", nil); res.StatusCode != 403 {
 		t.Fatalf("status = %d, want 403", res.StatusCode)
+	}
+}
+
+func TestProxyIdentityHardening(t *testing.T) {
+	c := baseConfig(t, "proxy", "apikey")
+	_, hash := NewAPIKey()
+	c.Auth.APIKeys.File = write(t, "keys.yaml", "- {name: ci, hash: "+hash+", role: admin}\n")
+	c.Auth.Proxy.TrustedCIDRs = []string{"10.0.0.0/8"}
+	c.Auth.Proxy.Roles = map[string]string{"admins": "admin"}
+	a, err := New(c, quiet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := func(hdr map[string]string) *http.Request {
+		r := httptest.NewRequest("GET", "/", nil)
+		r.RemoteAddr = "10.1.2.3:1234"
+		r.Header.Set("X-Forwarded-User", "mallory")
+		r.Header.Set("X-Forwarded-Groups", "admins")
+		for k, v := range hdr {
+			r.Header.Set(k, v)
+		}
+		return r
+	}
+	// A request routed around the proxy because it carries an Authorization header must not get
+	// a proxy identity, whatever the scheme or case.
+	for _, h := range []string{"Basic eDp5", "bearer something", "Bearer ehk_not-a-key", "Negotiate x"} {
+		if id := a.Authenticate(req(map[string]string{"Authorization": h})); id != nil {
+			t.Fatalf("Authorization %q gave identity %+v", h, id)
+		}
+	}
+	// With a shared secret configured, identity headers need it too.
+	c.Auth.Proxy.SharedSecret = config.SecretRef{File: write(t, "ps", "0123456789abcdef-proxy")}
+	a, err = New(c, quiet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.Authenticate(req(nil)) != nil {
+		t.Fatal("missing shared secret must be refused")
+	}
+	if a.Authenticate(req(map[string]string{"X-Console-Proxy-Secret": "wrong-wrong-wrong-wrong"})) != nil {
+		t.Fatal("wrong shared secret must be refused")
+	}
+	if id := a.Authenticate(req(map[string]string{"X-Console-Proxy-Secret": "0123456789abcdef-proxy"})); id == nil || id.Role != Admin {
+		t.Fatalf("right secret = %+v", id)
+	}
+}
+
+func TestNoneModeOnlyAnswersLoopbackAndChecksOrigin(t *testing.T) {
+	c := config.Default()
+	c.Auth.Modes = []string{"none"}
+	a, err := New(c, quiet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/apply", a.Require(Admin, func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "applied") }))
+	h := a.Middleware(mux)
+	try := func(host, origin string) int {
+		r := httptest.NewRequest("POST", "http://"+host+"/api/apply", nil)
+		r.Host = host
+		if origin != "" {
+			r.Header.Set("Origin", origin)
+		}
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w.Code
+	}
+	if code := try("attacker.example:8088", "http://attacker.example:8088"); code != http.StatusMisdirectedRequest {
+		t.Fatalf("rebinding host = %d", code)
+	}
+	if code := try("127.0.0.1:8088", "https://evil.example"); code != 403 {
+		t.Fatalf("cross-origin POST in none mode = %d, want 403", code)
+	}
+	if code := try("localhost:8088", "http://localhost:8088"); code != 200 {
+		t.Fatalf("same-origin local POST = %d", code)
+	}
+	for host, want := range map[string]bool{"localhost:1": true, "127.0.0.1": true, "[::1]:8088": true, "app.localhost": true, "10.0.0.1:80": false, "example.com": false} {
+		if LoopbackHost(host) != want {
+			t.Errorf("LoopbackHost(%q) != %v", host, want)
+		}
+	}
+}
+
+func TestSafeNextRejectsControlCharacters(t *testing.T) {
+	for in, want := range map[string]string{"/\t/evil.example": "/", "/\n/evil.example": "/", "/%09/x": "/%09/x", "/logs?errors=1": "/logs?errors=1", "/\x7f": "/"} {
+		if got := safeNext(in); got != want {
+			t.Errorf("safeNext(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestSessionsCanBeRevoked(t *testing.T) {
+	hash, _ := HashPassword("correct horse")
+	c := baseConfig(t, "local")
+	c.BaseURL = "http://127.0.0.1"
+	c.Auth.Local.UsersFile = write(t, "users.yaml", "- {username: rob, passwordHash: '"+hash+"', role: admin}\n")
+	a, err := New(c, quiet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := app(t, a)
+	defer srv.Close()
+	login := func() *http.Client {
+		jar, _ := cookiejar.New(nil)
+		cl := &http.Client{Jar: jar}
+		if res, b := do(t, cl, "POST", srv.URL+"/auth/login", `{"username":"rob","password":"correct horse"}`, map[string]string{"Origin": srv.URL, "Content-Type": "application/json"}); res.StatusCode != 200 {
+			t.Fatalf("login %d %s", res.StatusCode, b)
+		}
+		return cl
+	}
+	// Logout revokes the session even if the cookie is replayed.
+	cl := login()
+	u, _ := url.Parse(srv.URL)
+	saved := cl.Jar.Cookies(u)
+	do(t, cl, "POST", srv.URL+"/auth/logout", "", map[string]string{"Origin": srv.URL})
+	jar, _ := cookiejar.New(nil)
+	jar.SetCookies(u, saved)
+	if res, _ := do(t, &http.Client{Jar: jar}, "GET", srv.URL+"/api/view", "", nil); res.StatusCode != 401 {
+		t.Fatalf("replayed cookie after logout = %d", res.StatusCode)
+	}
+	// Demoting or removing a local user takes effect immediately.
+	cl = login()
+	time.Sleep(10 * time.Millisecond)
+	os.WriteFile(c.Auth.Local.UsersFile, []byte("- {username: rob, passwordHash: '"+hash+"', role: viewer}\n"), 0o600)
+	if res, _ := do(t, cl, "POST", srv.URL+"/api/apply", "", map[string]string{"Origin": srv.URL}); res.StatusCode != 403 {
+		t.Fatalf("demoted user apply = %d, want 403", res.StatusCode)
+	}
+	time.Sleep(10 * time.Millisecond)
+	os.WriteFile(c.Auth.Local.UsersFile, []byte("[]\n"), 0o600)
+	if res, _ := do(t, cl, "GET", srv.URL+"/api/view", "", nil); res.StatusCode != 401 {
+		t.Fatalf("removed user = %d, want 401", res.StatusCode)
+	}
+	// sessionsValidAfter signs everyone out.
+	os.WriteFile(c.Auth.Local.UsersFile, []byte("- {username: rob, passwordHash: '"+hash+"', role: admin}\n"), 0o600)
+	cl = login()
+	c.Auth.SessionsValidAfter = time.Now().Add(time.Minute).Format(time.RFC3339)
+	a2, _ := New(c, quiet)
+	srv2 := app(t, a2)
+	defer srv2.Close()
+	u2, _ := url.Parse(srv2.URL)
+	jar2, _ := cookiejar.New(nil)
+	jar2.SetCookies(u2, cl.Jar.Cookies(u))
+	if res, _ := do(t, &http.Client{Jar: jar2}, "GET", srv2.URL+"/api/view", "", nil); res.StatusCode != 401 {
+		t.Fatalf("session issued before sessionsValidAfter = %d", res.StatusCode)
+	}
+}
+
+func TestLoginLimiterIsPerUser(t *testing.T) {
+	l := newLimiter(2, time.Minute)
+	if !l.allow("1.2.3.4|a") || !l.allow("1.2.3.4|a") || l.allow("1.2.3.4|a") {
+		t.Fatal("per-key limit not enforced")
+	}
+	if !l.allow("1.2.3.4|b") {
+		t.Fatal("another username from the same address must not be locked out")
 	}
 }

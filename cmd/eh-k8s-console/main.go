@@ -237,7 +237,9 @@ func serve(args []string) error {
 	go sc.Run(ctx)
 
 	srv := &server.Server{Cfg: cfg, Auth: a, Scanner: sc, Engine: eng, Logs: lr, Notifier: notifier, Static: web.Static(), Log: log, Version: version}
-	httpSrv := &http.Server{Addr: cfg.Listen, Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second}
+	// No WriteTimeout: the log viewer streams. Reads and idle connections are bounded.
+	httpSrv := &http.Server{Addr: cfg.Listen, Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout: 30 * time.Second, IdleTimeout: 2 * time.Minute, MaxHeaderBytes: 64 << 10}
 	errc := make(chan error, 2)
 	go func() { errc <- httpSrv.ListenAndServe() }()
 	var metricsSrv *http.Server

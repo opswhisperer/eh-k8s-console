@@ -45,7 +45,15 @@ type Scanner struct {
 	mu      sync.RWMutex
 	last    *state.State
 	running sync.Mutex
+
+	// A short-lived shared snapshot: concurrent API requests reuse one discovery instead of each
+	// listing the cluster again.
+	snapMu  sync.Mutex
+	snapAt  time.Time
+	snapVal *discovery.Snapshot
 }
+
+const snapshotTTL = 5 * time.Second
 
 func (s *Scanner) Latest() *state.State {
 	s.mu.RLock()
@@ -58,9 +66,30 @@ func (s *Scanner) discoveryOptions() discovery.Options {
 	return discovery.Options{Namespace: i.Namespace, Prefix: i.Prefix, ConfigMap: i.ConfigMap, Annotations: i.Annotations.Enabled}
 }
 
-// Snapshot takes a fresh snapshot (used before planning a change).
+// Snapshot returns a snapshot at most a few seconds old, shared between callers. Treat it as
+// read-only.
 func (s *Scanner) Snapshot(ctx context.Context) (*discovery.Snapshot, error) {
-	return discovery.Discover(ctx, s.Clients, s.discoveryOptions())
+	s.snapMu.Lock()
+	defer s.snapMu.Unlock()
+	if s.snapVal != nil && time.Since(s.snapAt) < snapshotTTL {
+		return s.snapVal, nil
+	}
+	return s.discoverLocked(ctx)
+}
+
+// FreshSnapshot always reads the cluster (apply needs the live state) and refreshes the cache.
+func (s *Scanner) FreshSnapshot(ctx context.Context) (*discovery.Snapshot, error) {
+	s.snapMu.Lock()
+	defer s.snapMu.Unlock()
+	return s.discoverLocked(ctx)
+}
+
+func (s *Scanner) discoverLocked(ctx context.Context) (*discovery.Snapshot, error) {
+	snap, err := discovery.Discover(ctx, s.Clients, s.discoveryOptions())
+	if err == nil {
+		s.snapVal, s.snapAt = snap, time.Now()
+	}
+	return snap, err
 }
 
 func (s *Scanner) validateOptions() validate.Options {
@@ -107,7 +136,7 @@ func (s *Scanner) Scan(ctx context.Context) *state.State {
 	defer s.running.Unlock()
 	start := time.Now()
 	st := &state.State{At: start}
-	snap, err := s.Snapshot(ctx)
+	snap, err := s.FreshSnapshot(ctx)
 	if err != nil {
 		st.Err = err.Error()
 		st.Findings = []finding.Finding{{Severity: finding.Critical, Source: "runtime", Code: "scan_failed", Message: "Cannot read the integration: " + err.Error(),
@@ -129,7 +158,7 @@ func (s *Scanner) Scan(ctx context.Context) *state.State {
 		}
 	}
 	if s.Logs != nil {
-		lines := s.Logs.Fetch(ctx, logs.Targets(snap), logs.FollowOptions{Since: s.Cfg.Logs.SignatureWindow.Duration})
+		lines := s.Logs.Fetch(ctx, logs.Targets(snap), logs.FollowOptions{Since: s.Cfg.Logs.SignatureWindow.Duration, LimitBytes: 2 << 20, MaxLines: 200000})
 		st.Logs, st.IgnoredLogs = splitIgnored(logs.Signatures(lines, s.Cfg.Logs.SignatureWindow.Duration), s.Ignore)
 	}
 	var extra []finding.Finding

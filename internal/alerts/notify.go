@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
+	neturl "net/url"
 	"sort"
 	"strings"
 	"sync"
@@ -273,7 +275,7 @@ func (n *Notifier) send(ctx context.Context, w config.Webhook, ts []Transition) 
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(b))
 	if err != nil {
-		return err
+		return errors.New("the webhook URL is not valid") // never echo the URL: it may carry a token
 	}
 	req.Header.Set("Content-Type", "application/json")
 	hc := n.HTTP
@@ -282,7 +284,13 @@ func (n *Notifier) send(ctx context.Context, w config.Webhook, ts []Transition) 
 	}
 	res, err := hc.Do(req)
 	if err != nil {
-		return err
+		// net/http errors quote the full URL (path and query included), and webhook URLs often
+		// carry their token there: keep only the underlying cause.
+		var ue *neturl.Error
+		if errors.As(err, &ue) {
+			return fmt.Errorf("delivery failed: %v", ue.Err)
+		}
+		return errors.New("delivery failed")
 	}
 	defer res.Body.Close()
 	if res.StatusCode >= 300 {

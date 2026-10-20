@@ -1,7 +1,8 @@
 # HTTP API
 
 The UI uses this JSON API, and so can scripts. Authenticate with an API key
-(`Authorization: Bearer ehk_…`, see [auth.md](auth.md)) or a browser session. The role column is
+(`Authorization: Bearer ehk_…`, see [auth.md](auth.md)) or a browser session. Send request
+bodies as JSON with `Content-Type: application/json`; other content types are refused. The role column is
 the minimum role needed. A request below that role gets `403`; one with no credentials gets `401`.
 
 ## Status
@@ -24,7 +25,7 @@ apply exactly what you reviewed.
 | Method and path | Role | Body / returns |
 |---|---|---|
 | `GET /api/settings` | viewer | Every setting with its value, type, docs, consumers and read-only flag. Secrets show length and pair status only. |
-| `POST /api/plan` | viewer | Body: a change (below). Returns the field changes, diffs, restarts, new and fixed findings, `blocked`, `hash` and `requiredRole`. |
+| `POST /api/plan` | viewer (admin for changes with `secrets`) | Body: a change (below). Returns the field changes, diffs, restarts, new and fixed findings, `blocked`, `hash` and `requiredRole`. |
 | `POST /api/apply` | operator* | Body: `{"change": …, "hash": "<from plan>", "kind": "apply"}`. Returns the revision and the restarted workloads. `409` if the cluster changed since the plan. |
 | `GET /api/rollout?names=Deployment/x,DaemonSet/y` | viewer | Rollout progress. |
 | `GET /api/history` | viewer | Revisions, newest first. |
@@ -34,6 +35,10 @@ apply exactly what you reviewed.
 
 \* Operators can apply changes to `sensorCert` and restarts. Every other change, and `force`, needs
 admin. `requiredRole` in the plan says which applies.
+
+A new `sensorCert` is checked on the server at apply time: it must trust the sensor's current
+certificate (admins can `force` past that). An operator may store only certificates the sensor
+presents, or the root that verified them, never an extra trust anchor.
 
 A change:
 
@@ -52,10 +57,10 @@ A change:
 Example: change a list from a script.
 
 ```bash
-B=https://ehconsole.example.com; H="Authorization: Bearer $EHK_KEY"
+B=https://ehconsole.example.com; H="Authorization: Bearer $EHK_KEY"; J="Content-Type: application/json"
 CHANGE='{"config":{"skipNamespaces":"batch,ci"},"reason":"from CI"}'
-HASH=$(curl -s -H "$H" -d "$CHANGE" $B/api/plan | jq -r 'if .blocked then error(.blockReason) else .hash end')
-curl -s -H "$H" -d "{\"change\":$CHANGE,\"hash\":\"$HASH\"}" $B/api/apply
+HASH=$(curl -s -H "$H" -H "$J" -d "$CHANGE" $B/api/plan | jq -r 'if .blocked then error(.blockReason) else .hash end')
+curl -s -H "$H" -H "$J" -d "{\"change\":$CHANGE,\"hash\":\"$HASH\"}" $B/api/apply
 ```
 
 ## Traffic filtering and annotations
@@ -65,7 +70,7 @@ curl -s -H "$H" -d "{\"change\":$CHANGE,\"hash\":\"$HASH\"}" $B/api/apply
 | `GET /api/policy` | viewer | Rules, namespace lists, mode, annotated resources, and the preview (when `policy.order` is set). |
 | `POST /api/policy/evaluate` | viewer | Body: `{"peers": [{"kind": "pod", "namespace": "a"}, {"kind": "external"}], "config": {…overrides}}`. `400` when the preview is off. |
 | `GET /api/annotations` | viewer | Every resource carrying the mirror annotation. |
-| `GET /api/pods?namespace=&selector=` | viewer | Pods, with owner and current rule (annotation editing must be enabled). |
+| `GET /api/pods?namespace=&selector=` | viewer | Pods in one namespace (required), with owner and current rule. Annotation editing must be enabled. |
 | `GET /api/nodes` | viewer | Nodes and their current rule. |
 | `POST /api/annotate` | operator* | Body: `{"targets": [{"kind": "Pod", "namespace": "a", "name": "p"}], "rule": "mirror" or "skip" or "", "mode": "now" or "persist" or "both", "dryRun": false}`, or `namespace` + `selector` in place of `targets`. |
 
@@ -75,8 +80,8 @@ curl -s -H "$H" -d "{\"change\":$CHANGE,\"hash\":\"$HASH\"}" $B/api/apply
 
 | Method and path | Role | Returns |
 |---|---|---|
-| `GET /api/logs/stream?component=&pod=&tail=&previous=` | viewer | Server-sent events, one JSON log line per event (with `signature` and `ignoredBy` on warnings and errors). |
-| `GET /api/logs?since=1h&component=&format=text` | viewer | Recent lines as JSON, or as a text download. |
+| `GET /api/logs/stream?component=&pod=&tail=&previous=` | viewer | Server-sent events, one JSON log line per event (with `signature` and `ignoredBy` on warnings and errors). Up to 3 open streams per user, and 25 in total. |
+| `GET /api/logs?since=1h&component=&format=text` | viewer | Recent lines as JSON, or as a text download. `since` is capped at 24h, 2 MiB per container and 100,000 lines. |
 | `GET /api/events` | viewer | Kubernetes events for the integration's objects. |
 | `GET /api/ignore` | viewer | Ignore rules and what each hid in the last window. |
 | `POST /api/ignore/test` | viewer | Body: `{"pattern": "…"}`. Checks a pattern and lists what it would hide. |

@@ -37,7 +37,9 @@ auth:
   modes: [oidc, apikey]
   # Signs session cookies. 32+ characters. Without it sessions end when the pod restarts.
   sessionSecret: { file: /secrets/session-secret }
-  sessionTTL: 12h
+  sessionTTL: 8h
+  # Sign everyone out: sessions issued before this time (RFC 3339) are rejected.
+  # sessionsValidAfter: "2026-10-20T00:00:00Z"
   # Role for a signed-in user whose groups match no mapping. Empty: refuse them.
   # Roles: viewer (read, logs, preview), operator (+ certificate refresh, restarts, annotate
   # running pods/nodes), admin (+ every setting, secrets, workload templates, rollback).
@@ -70,6 +72,10 @@ auth:
     # Identity headers from an authenticating proxy (e.g. forward auth). Trusted only from these
     # source addresses: the proxy's pod/node range, never 0.0.0.0/0.
     trustedCIDRs: [10.244.0.0/16]
+    # The proxy adds this header to every request; without it identity headers are ignored, so
+    # pods that merely sit inside trustedCIDRs can't forge them. Strongly recommended.
+    sharedSecret: { file: /secrets/proxy-secret }
+    sharedSecretHeader: X-Console-Proxy-Secret
     userHeader: X-Forwarded-User
     groupsHeader: X-Forwarded-Groups
     emailHeader: X-Forwarded-Email

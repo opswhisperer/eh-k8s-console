@@ -7,6 +7,8 @@ auth:
   proxy:
     # Source addresses of the proxy pods (your pod CIDR, or tighter). Never 0.0.0.0/0.
     trustedCIDRs: [10.244.0.0/16]
+    # The proxy must add this header (value from Secret key proxy-secret) to every request.
+    sharedSecret: { file: /secrets/proxy-secret }
     userHeader: X-Forwarded-User        # oauth2-proxy: X-Forwarded-User / X-Forwarded-Groups
     groupsHeader: X-Forwarded-Groups    # Authentik: X-authentik-username / X-authentik-groups
     emailHeader: X-Forwarded-Email

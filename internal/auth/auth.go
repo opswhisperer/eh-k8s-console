@@ -25,6 +25,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"mime"
 	"net"
 	"net/http"
 	"net/url"
@@ -69,6 +70,8 @@ type Identity struct {
 	Via    string   `json:"via"` // oidc | local | apikey | proxy | none
 	Groups []string `json:"groups,omitempty"`
 	Exp    int64    `json:"exp,omitempty"`
+	Iat    int64    `json:"iat,omitempty"`
+	Jti    string   `json:"jti,omitempty"`
 	// IDToken is kept for RP-initiated logout (not sent to the browser).
 	IDToken string `json:"idt,omitempty"`
 }
@@ -102,11 +105,16 @@ type Auth struct {
 	secure  bool
 	log     *slog.Logger
 
-	oidc    *oidcState
-	users   *fileStore[localUser]
-	apiKeys *fileStore[apiKey]
-	proxy   []*net.IPNet
-	limiter *limiter
+	oidc        *oidcState
+	users       *fileStore[localUser]
+	apiKeys     *fileStore[apiKey]
+	proxy       []*net.IPNet
+	proxySecret string
+	limiter     *limiter
+	validAfter  int64
+
+	revokedMu sync.Mutex
+	revoked   map[string]int64 // session id -> expiry, for logout
 }
 
 type localUser struct {
@@ -123,7 +131,14 @@ type apiKey struct {
 
 // New builds the authenticator. It fails on configuration errors, never silently opens up.
 func New(c *config.Config, log *slog.Logger) (*Auth, error) {
-	a := &Auth{cfg: c.Auth, log: log, limiter: newLimiter(10, time.Minute)}
+	a := &Auth{cfg: c.Auth, log: log, limiter: newLimiter(10, time.Minute), revoked: map[string]int64{}}
+	if v := c.Auth.SessionsValidAfter; v != "" {
+		t, err := time.Parse(time.RFC3339, v)
+		if err != nil {
+			return nil, fmt.Errorf("auth.sessionsValidAfter: %w", err)
+		}
+		a.validAfter = t.Unix()
+	}
 	if c.BaseURL != "" {
 		u, err := url.Parse(c.BaseURL)
 		if err != nil {
@@ -179,6 +194,15 @@ func New(c *config.Config, log *slog.Logger) (*Auth, error) {
 			}
 			a.proxy = append(a.proxy, n)
 		}
+		if c.Auth.Proxy.SharedSecret.Set() {
+			v, err := c.Auth.Proxy.SharedSecret.Read()
+			if err != nil || len(v) < 16 {
+				return nil, fmt.Errorf("auth.proxy.sharedSecret: %v", errOr(err, "must be at least 16 characters"))
+			}
+			a.proxySecret = v
+		} else {
+			log.Warn("auth.proxy.sharedSecret is not set: any client inside trustedCIDRs can set identity headers. Set a shared secret or restrict the console with a NetworkPolicy.")
+		}
 	}
 	return a, nil
 }
@@ -203,22 +227,29 @@ func (a *Auth) has(m string) bool {
 }
 
 // Authenticate returns the caller's identity, or nil.
+//
+// A request carrying any Authorization header is treated as an API client: it gets an identity
+// only from a valid console API key, never from cookies or proxy headers. That way a proxy that
+// routes Authorization-bearing requests around its own sign-in can't be used to forge identity
+// headers.
 func (a *Auth) Authenticate(r *http.Request) *Identity {
 	if a.Open() {
 		return &Identity{User: "anonymous", Role: Admin, Via: "none"}
 	}
-	if h := r.Header.Get("Authorization"); a.apiKeys != nil && strings.HasPrefix(h, "Bearer ") {
-		return a.checkAPIKey(strings.TrimSpace(strings.TrimPrefix(h, "Bearer ")))
+	if h := r.Header.Get("Authorization"); h != "" {
+		if tok, ok := bearerToken(h); ok && a.apiKeys != nil {
+			return a.checkAPIKey(tok)
+		}
+		return nil
 	}
 	if a.key != nil {
 		if c, err := r.Cookie(sessionCookie); err == nil {
-			var id Identity
-			if a.verify(c.Value, &id) == nil && time.Now().Unix() < id.Exp {
-				return &id
+			if id := a.session(c.Value); id != nil {
+				return id
 			}
 		}
 	}
-	if len(a.proxy) > 0 && a.fromTrustedProxy(r) {
+	if len(a.proxy) > 0 && a.fromTrustedProxy(r) && a.proxySecretOK(r) {
 		if user := r.Header.Get(a.cfg.Proxy.UserHeader); user != "" {
 			groups := splitGroups(r.Header.Get(a.cfg.Proxy.GroupsHeader))
 			role := a.roleFor(groups, a.cfg.Proxy.Roles)
@@ -229,6 +260,90 @@ func (a *Auth) Authenticate(r *http.Request) *Identity {
 		}
 	}
 	return nil
+}
+
+func bearerToken(h string) (string, bool) {
+	scheme, tok, ok := strings.Cut(strings.TrimSpace(h), " ")
+	if !ok || !strings.EqualFold(scheme, "bearer") {
+		return "", false
+	}
+	return strings.TrimSpace(tok), true
+}
+
+func (a *Auth) proxySecretOK(r *http.Request) bool {
+	if a.proxySecret == "" {
+		return true
+	}
+	got := r.Header.Get(a.cfg.Proxy.SharedSecretHeader)
+	return subtle.ConstantTimeCompare([]byte(got), []byte(a.proxySecret)) == 1
+}
+
+// session validates a session cookie: signature, expiry, the global cut-off, logout, and for
+// local users that the account still exists (with its current role).
+func (a *Auth) session(tok string) *Identity {
+	var id Identity
+	now := time.Now().Unix()
+	if a.verify(tok, &id) != nil || now >= id.Exp || id.Iat < a.validAfter || id.Jti == "" {
+		return nil
+	}
+	a.revokedMu.Lock()
+	_, gone := a.revoked[id.Jti]
+	a.revokedMu.Unlock()
+	if gone {
+		return nil
+	}
+	if id.Via == "local" {
+		if a.users == nil {
+			return nil
+		}
+		users, err := a.users.load()
+		if err != nil {
+			return nil
+		}
+		found := false
+		for _, u := range users {
+			if u.Username == id.User {
+				found, id.Role = true, u.Role
+				if id.Role == "" {
+					id.Role = Viewer
+				}
+			}
+		}
+		if !found {
+			return nil
+		}
+	}
+	return &id
+}
+
+func (a *Auth) revoke(id *Identity) {
+	if id == nil || id.Jti == "" {
+		return
+	}
+	a.revokedMu.Lock()
+	defer a.revokedMu.Unlock()
+	now := time.Now().Unix()
+	for j, exp := range a.revoked {
+		if exp < now {
+			delete(a.revoked, j)
+		}
+	}
+	a.revoked[id.Jti] = id.Exp
+}
+
+// LoopbackHost reports whether a Host header names this machine (none mode answers only to these,
+// which defeats DNS rebinding).
+func LoopbackHost(host string) bool {
+	h := host
+	if hh, _, err := net.SplitHostPort(host); err == nil {
+		h = hh
+	}
+	h = strings.ToLower(strings.Trim(h, "[]"))
+	if h == "localhost" || strings.HasSuffix(h, ".localhost") {
+		return true
+	}
+	ip := net.ParseIP(h)
+	return ip != nil && ip.IsLoopback()
 }
 
 func splitGroups(h string) []string {
@@ -347,7 +462,8 @@ func (a *Auth) setCookie(w http.ResponseWriter, name, value string, ttl time.Dur
 }
 
 func (a *Auth) startSession(w http.ResponseWriter, id *Identity) error {
-	id.Exp = time.Now().Add(a.cfg.SessionTTL.Duration).Unix()
+	now := time.Now()
+	id.Iat, id.Exp, id.Jti = now.Unix(), now.Add(a.cfg.SessionTTL.Duration).Unix(), randToken()
 	tok, err := a.sign(id)
 	if err != nil {
 		return err
@@ -379,9 +495,14 @@ func (a *Auth) SameOrigin(r *http.Request) bool {
 
 // ---- middleware ----
 
-// Middleware attaches the identity to every request.
+// Middleware attaches the identity to every request. With sign-in off (mode none) it answers only
+// to loopback Host names, so a web page can't reach it through DNS rebinding.
 func (a *Auth) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if a.Open() && !LoopbackHost(r.Host) {
+			writeErr(w, http.StatusMisdirectedRequest, "with sign-in off, this console answers only on localhost")
+			return
+		}
 		if id := a.Authenticate(r); id != nil {
 			r = r.WithContext(WithIdentity(r.Context(), id))
 		}
@@ -403,7 +524,9 @@ func (a *Auth) Require(role string, h http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 		unsafe := r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions
-		if unsafe && (id.Via == "oidc" || id.Via == "local" || id.Via == "proxy") && !a.SameOrigin(r) {
+		// API-key requests carry no ambient credential; every other identity (cookie, proxy
+		// headers, or none mode) must come from the console's own origin.
+		if unsafe && id.Via != "apikey" && !a.SameOrigin(r) {
 			writeErr(w, http.StatusForbidden, "cross-origin request refused")
 			return
 		}
@@ -463,6 +586,7 @@ func (a *Auth) handleLogout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := From(r.Context())
+	a.revoke(id)
 	a.setCookie(w, sessionCookie, "", -time.Second)
 	redirect := "/"
 	if id != nil && id.Via == "oidc" && a.oidc != nil {
@@ -497,13 +621,18 @@ func (a *Auth) handleLocalLogin(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusForbidden, "cross-origin request refused")
 		return
 	}
-	if !a.limiter.allow(clientIP(r)) {
-		writeErr(w, http.StatusTooManyRequests, "too many sign-in attempts; wait a minute")
+	if !IsJSON(r) {
+		writeErr(w, http.StatusUnsupportedMediaType, "send Content-Type: application/json")
 		return
 	}
 	var body struct{ Username, Password string }
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&body); err != nil {
 		writeErr(w, http.StatusBadRequest, "expected JSON {username, password}")
+		return
+	}
+	// Per client and username, so one attacker behind a shared ingress can't lock everyone out.
+	if !a.limiter.allow(clientIP(r) + "|" + body.Username) {
+		writeErr(w, http.StatusTooManyRequests, "too many sign-in attempts; wait a minute")
 		return
 	}
 	users, err := a.users.load()
@@ -598,12 +727,29 @@ func randToken() string {
 	return base64.RawURLEncoding.EncodeToString(b)
 }
 
-// safeNext keeps post-login redirects on this site.
+// safeNext keeps post-login redirects on this site: a plain absolute path, no control characters
+// (browsers drop tabs and newlines, turning "/\t/evil.com" into "//evil.com"), no scheme or host.
 func safeNext(n string) string {
-	if n == "" || !strings.HasPrefix(n, "/") || strings.HasPrefix(n, "//") || strings.Contains(n, "\\") {
+	if n == "" || len(n) > 2048 || !strings.HasPrefix(n, "/") || strings.HasPrefix(n, "//") || strings.Contains(n, "\\") {
+		return "/"
+	}
+	for _, c := range n {
+		if c < 0x20 || c == 0x7f {
+			return "/"
+		}
+	}
+	u, err := url.Parse(n)
+	if err != nil || u.Scheme != "" || u.Host != "" || u.User != nil || strings.HasPrefix(u.Path, "//") {
 		return "/"
 	}
 	return n
+}
+
+// IsJSON reports whether the request declares a JSON body. Browsers can send text/plain
+// cross-site without a preflight, so requiring JSON closes that CSRF path.
+func IsJSON(r *http.Request) bool {
+	mt, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	return err == nil && mt == "application/json"
 }
 
 func (a *Auth) handleOIDCStart(w http.ResponseWriter, r *http.Request) {
@@ -767,19 +913,32 @@ func (l *limiter) allow(key string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	now := time.Now()
-	var keep []time.Time
-	for _, t := range l.hits[key] {
-		if now.Sub(t) < l.window {
-			keep = append(keep, t)
+	recent := func(ts []time.Time) []time.Time {
+		var keep []time.Time
+		for _, t := range ts {
+			if now.Sub(t) < l.window {
+				keep = append(keep, t)
+			}
 		}
+		return keep
 	}
+	keep := recent(l.hits[key])
 	if len(keep) >= l.max {
 		l.hits[key] = keep
 		return false
 	}
-	l.hits[key] = append(keep, now)
-	if len(l.hits) > 10000 { // bound memory under a spray of addresses
-		l.hits = map[string][]time.Time{key: l.hits[key]}
+	if _, known := l.hits[key]; !known && len(l.hits) >= 10000 {
+		// Bound memory: drop expired entries; if a spray still fills the table, refuse new keys
+		// (existing clients keep their own budget) rather than resetting everyone's.
+		for k, ts := range l.hits {
+			if len(recent(ts)) == 0 {
+				delete(l.hits, k)
+			}
+		}
+		if len(l.hits) >= 10000 {
+			return false
+		}
 	}
+	l.hits[key] = append(keep, now)
 	return true
 }

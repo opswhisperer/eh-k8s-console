@@ -1,4 +1,7 @@
 listen: ":8080"
+# The URL you open the console at. With http (a port-forward) cookies are not marked Secure;
+# put the console behind TLS and use https:// for anything beyond a quick test.
+baseURL: http://localhost:8080
 auth:
   modes: [local]
   sessionSecret: { file: /secrets/session-secret }

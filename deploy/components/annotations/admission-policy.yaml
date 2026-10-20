@@ -1,0 +1,116 @@
+# Enforced by the API server, not the app: the console's service account may change only the
+# extrahop.com/traffic-mirror-rule annotation on pods, nodes and workload pod templates. Anything
+# else in those updates (images, commands, labels, other annotations, replicas) is refused, so a
+# leaked token can't use the cluster-wide patch permission for anything more.
+# Needs ValidatingAdmissionPolicy (GA since Kubernetes 1.30). If you deploy the console to another
+# namespace or under another name, change the username in both matchConditions.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: eh-k8s-console-annotation-only
+  labels:
+    app.kubernetes.io/name: eh-k8s-console
+    app.kubernetes.io/part-of: eh-k8s-console
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["UPDATE"]
+        resources: ["pods", "nodes"]
+  matchConditions:
+    - name: console-only
+      expression: request.userInfo.username == 'system:serviceaccount:extrahop:eh-k8s-console'
+  variables:
+    - name: key
+      expression: "'extrahop.com/traffic-mirror-rule'"
+    - name: oldAnn
+      expression: "has(oldObject.metadata.annotations) ? oldObject.metadata.annotations : {}"
+    - name: newAnn
+      expression: "has(object.metadata.annotations) ? object.metadata.annotations : {}"
+  validations:
+    - expression: >-
+        variables.newAnn.all(k, k == variables.key || (k in variables.oldAnn && variables.oldAnn[k] == variables.newAnn[k])) &&
+        variables.oldAnn.all(k, k == variables.key || k in variables.newAnn)
+      message: eh-k8s-console may change only the extrahop.com/traffic-mirror-rule annotation.
+    - expression: "!has(object.metadata.annotations) || !(variables.key in variables.newAnn) || variables.newAnn[variables.key] in ['mirror', 'skip']"
+      message: extrahop.com/traffic-mirror-rule must be mirror or skip.
+    - expression: >-
+        (has(object.metadata.labels) ? object.metadata.labels : {}) == (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {}) &&
+        (!has(oldObject.spec) || object.spec == oldObject.spec)
+      message: eh-k8s-console may not change labels or spec.
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: eh-k8s-console-template-annotation-only
+  labels:
+    app.kubernetes.io/name: eh-k8s-console
+    app.kubernetes.io/part-of: eh-k8s-console
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["apps"]
+        apiVersions: ["v1"]
+        operations: ["UPDATE"]
+        resources: ["deployments", "statefulsets", "daemonsets"]
+    # The console edits the integration's own workloads (images, args, restarts) in its namespace
+    # through its namespaced Role; elsewhere it may only annotate pod templates.
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values: ["extrahop"]
+  matchConditions:
+    - name: console-only
+      expression: request.userInfo.username == 'system:serviceaccount:extrahop:eh-k8s-console'
+  variables:
+    - name: key
+      expression: "'extrahop.com/traffic-mirror-rule'"
+    - name: oldT
+      expression: oldObject.spec.template
+    - name: newT
+      expression: object.spec.template
+    - name: oldAnn
+      expression: "has(variables.oldT.metadata.annotations) ? variables.oldT.metadata.annotations : {}"
+    - name: newAnn
+      expression: "has(variables.newT.metadata.annotations) ? variables.newT.metadata.annotations : {}"
+  validations:
+    - expression: >-
+        variables.newAnn.all(k, k == variables.key || (k in variables.oldAnn && variables.oldAnn[k] == variables.newAnn[k])) &&
+        variables.oldAnn.all(k, k == variables.key || k in variables.newAnn)
+      message: eh-k8s-console may change only the extrahop.com/traffic-mirror-rule annotation on the pod template.
+    - expression: "!(variables.key in variables.newAnn) || variables.newAnn[variables.key] in ['mirror', 'skip']"
+      message: extrahop.com/traffic-mirror-rule must be mirror or skip.
+    - expression: >-
+        variables.newT.spec == variables.oldT.spec &&
+        (has(variables.newT.metadata.labels) ? variables.newT.metadata.labels : {}) == (has(variables.oldT.metadata.labels) ? variables.oldT.metadata.labels : {}) &&
+        object.spec.selector == oldObject.spec.selector &&
+        (!has(oldObject.spec.replicas) || object.spec.replicas == oldObject.spec.replicas) &&
+        (has(object.metadata.labels) ? object.metadata.labels : {}) == (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {}) &&
+        (has(object.metadata.annotations) ? object.metadata.annotations : {}) == (has(oldObject.metadata.annotations) ? oldObject.metadata.annotations : {})
+      message: eh-k8s-console may not change a workload's pod spec, labels, selector, replicas or annotations.
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: eh-k8s-console-annotation-only
+  labels:
+    app.kubernetes.io/name: eh-k8s-console
+    app.kubernetes.io/part-of: eh-k8s-console
+spec:
+  policyName: eh-k8s-console-annotation-only
+  validationActions: [Deny]
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: eh-k8s-console-template-annotation-only
+  labels:
+    app.kubernetes.io/name: eh-k8s-console
+    app.kubernetes.io/part-of: eh-k8s-console
+spec:
+  policyName: eh-k8s-console-template-annotation-only
+  validationActions: [Deny]

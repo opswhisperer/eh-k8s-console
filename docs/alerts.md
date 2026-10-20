@@ -77,3 +77,5 @@ stay visible in the log viewer under "Ignored lines".
 - **Rules in the config file** (`logs.ignore`, regular expressions on the normalized message) are read-only in the UI.
 - **Rules added in the console** are stored in ConfigMap `eh-k8s-console-ignore`, with a note, who added them and when. Use "Ignore…" on any error line or recurring error: it suggests an exact pattern and previews what it would hide. Operators and admins can add and remove these.
 - **Normalized messages:** ids, addresses, interface names and numbers are replaced, so one rule covers every repeat of a message.
+- **Broad patterns are refused:** a pattern that matches unrelated messages (like `.` or `^.+$`) would hide every error, so the console rejects it.
+- **Webhook errors:** delivery errors shown on the Overview never include the webhook URL, which often carries a token.

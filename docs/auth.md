@@ -95,7 +95,7 @@ auth:
   local: { usersFile: /secrets/users.yaml }
 ```
 
-Each client IP is limited to 10 sign-in attempts a minute. Failed attempts are logged.
+Each client and username pair is limited to 10 sign-in attempts a minute, so one client can't lock everyone out behind a shared ingress. Failed attempts are logged. `baseURL` is required (it decides whether cookies are `Secure`).
 
 ## API keys
 
@@ -131,6 +131,8 @@ auth:
   modes: [proxy, apikey]
   proxy:
     trustedCIDRs: [10.244.0.0/16]      # where the proxy's requests come from
+    sharedSecret: { file: /secrets/proxy-secret }     # strongly recommended, see below
+    sharedSecretHeader: X-Console-Proxy-Secret
     userHeader: X-Forwarded-User
     groupsHeader: X-Forwarded-Groups   # comma- or pipe-separated
     emailHeader: X-Forwarded-Email
@@ -138,14 +140,33 @@ auth:
   defaultRole: viewer
 ```
 
-- **Only trusted sources:** the headers are honoured only from `trustedCIDRs`. The proxy must also remove any of these headers that arrive from clients.
+**Identity headers are only as trustworthy as the network path.** Anything that can reach the
+console from inside `trustedCIDRs` can set them, and a pod CIDR includes every pod in the
+cluster. Use both of these protections:
+
+- **Shared secret:** configure the proxy to add `X-Console-Proxy-Secret: <secret>` to every request it forwards. The console then ignores identity headers on requests without it.
+  - Envoy Gateway / Istio: `headersToAdd` on the route.
+  - ingress-nginx: `nginx.ingress.kubernetes.io/configuration-snippet` with `proxy_set_header`.
+  - oauth2-proxy: `--upstream` through a sidecar, or your ingress.
+- **NetworkPolicy:** allow ingress to the console's port 8080 only from the proxy's pods. `deploy/examples/proxy-auth/networkpolicy.yaml` is a template.
+
+Also:
+
 - **Header names:**
   - oauth2-proxy: `X-Forwarded-User` and `X-Forwarded-Groups` (with `--pass-user-headers`).
   - Authentik forward auth: `X-authentik-username` and `X-authentik-groups`.
-- **Keep API routes reachable:** if the proxy gates every path, scripts can't reach the API. Route `/api/` around the proxy for requests that carry an `Authorization` header, or use the proxy's own token support.
+- **Strip client headers:** the proxy must remove these headers when they come from the client.
+- **The `Authorization` header:** a request that carries one is treated as an API client. It gets an identity only from a valid console API key, never from proxy headers or a cookie. So don't configure the proxy to pass its own `Authorization` header upstream (oauth2-proxy: leave `--pass-authorization-header` and `--set-authorization-header` off).
+- **Keeping API keys working:** if the proxy gates every path, route requests whose header starts with `Bearer ehk_` around it, and send everything else through it.
 
 ## CSRF and sessions
 
-- **Cookies:** the session cookie is HMAC-signed, `HttpOnly` and `SameSite=Lax`, and `Secure` when `baseURL` is https.
-- **Origin check:** every state-changing request authenticated by cookie or proxy must come from the console's own origin.
+- **Cookies:** the session cookie is HMAC-signed, `HttpOnly` and `SameSite=Lax`, and `Secure` when `baseURL` is https. `baseURL` is required for OIDC and local sign-in.
+- **Session lifetime:** sessions last `auth.sessionTTL` (8h by default).
+- **Revocation:**
+  - Signing out revokes the session on the server (for a single replica).
+  - A local user removed from the users file, or given another role, is signed out or changed on their next request.
+  - To sign everyone out, set `auth.sessionsValidAfter` to the current time (RFC 3339) and restart.
+- **Origin check:** every state-changing request that doesn't use an API key (cookie, proxy headers, or no sign-in) must come from the console's own origin, and API bodies must be `Content-Type: application/json`.
+- **No sign-in (`none`):** the console answers only to `localhost` / loopback `Host` names, which defeats DNS rebinding.
 - **Security headers:** the UI is served with a Content-Security-Policy, `X-Content-Type-Options: nosniff` and `frame-ancestors 'none'`.

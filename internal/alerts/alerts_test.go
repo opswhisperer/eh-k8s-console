@@ -152,3 +152,15 @@ ehk_log_error_signatures{component="metadata-forwarder",level="error",signature=
 		t.Fatalf("ehk_cert_state series = %d", n)
 	}
 }
+
+func TestDeliveryErrorsNeverShowTheURL(t *testing.T) {
+	n := notifier(t, "http://127.0.0.1:1/services/T000/B000/SECRETTOKEN?token=abc", nil)
+	n.Observe(context.Background(), []finding.Finding{broken})
+	for name, msg := range n.Errors() {
+		if strings.Contains(msg, "SECRETTOKEN") || strings.Contains(msg, "token=abc") || strings.Contains(msg, "/services/") {
+			t.Fatalf("webhook %s error leaks the URL: %s", name, msg)
+		}
+		return
+	}
+	t.Fatal("expected a delivery error")
+}

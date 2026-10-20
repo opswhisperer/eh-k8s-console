@@ -220,6 +220,10 @@ type FollowOptions struct {
 	TailLines int64
 	Since     time.Duration
 	Previous  bool
+	// LimitBytes caps what Fetch reads per container (default 2 MiB).
+	LimitBytes int64
+	// MaxLines caps the total lines Fetch returns (0: no cap).
+	MaxLines int
 }
 
 // Follow streams lines from every target into one channel until ctx ends. Errors opening a
@@ -275,7 +279,10 @@ func (r *Reader) Fetch(ctx context.Context, targets []Target, fo FollowOptions) 
 		wg.Add(1)
 		go func(t Target) {
 			defer wg.Done()
-			limit := int64(8 << 20)
+			limit := fo.LimitBytes
+			if limit <= 0 {
+				limit = 2 << 20
+			}
 			opts := &corev1.PodLogOptions{Previous: fo.Previous, LimitBytes: &limit}
 			if fo.TailLines > 0 {
 				opts.TailLines = &fo.TailLines
@@ -296,6 +303,9 @@ func (r *Reader) Fetch(ctx context.Context, targets []Target, fo FollowOptions) 
 				local = append(local, r.tag(Parse(t, sc.Text())))
 			}
 			mu.Lock()
+			if fo.MaxLines > 0 && len(lines)+len(local) > fo.MaxLines {
+				local = local[:max(0, fo.MaxLines-len(lines))]
+			}
 			lines = append(lines, local...)
 			mu.Unlock()
 		}(t)

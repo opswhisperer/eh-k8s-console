@@ -508,59 +508,108 @@ func esInfo(u *unstructured.Unstructured) *ExternalSecret {
 	return es
 }
 
+// pageSize bounds each list call, so a large cluster is read in pages rather than all at once.
+const pageSize = 500
+
+// pages calls list until the API server reports no more pages.
+func pages(ctx context.Context, list func(metav1.ListOptions) (string, error)) error {
+	opts := metav1.ListOptions{Limit: pageSize}
+	for {
+		next, err := list(opts)
+		if err != nil {
+			return err
+		}
+		if next == "" || ctx.Err() != nil {
+			return ctx.Err()
+		}
+		opts.Continue = next
+	}
+}
+
 func annotated(ctx context.Context, k kubernetes.Interface, errs *[]string) []Annotated {
 	var out []Annotated
-	// Pods and nodes are what the coordinator honours. Workload templates are listed because that
-	// is where a lasting pod annotation belongs. Services are listed so a misplaced annotation is
-	// visible; the validator flags kinds the integration does not read.
-	if pods, err := k.CoreV1().Pods("").List(ctx, metav1.ListOptions{}); err != nil {
-		*errs = append(*errs, "list pods (annotations): "+err.Error())
-	} else {
-		for _, p := range pods.Items {
+	add := func(a Annotated) { out = append(out, a) }
+	// Pods and nodes carry the annotation the coordinator reads. Workload templates are listed
+	// because that is where a lasting pod annotation belongs. Services are listed so a misplaced
+	// annotation is visible; the validator flags kinds the integration does not read.
+	if err := pages(ctx, func(o metav1.ListOptions) (string, error) {
+		l, err := k.CoreV1().Pods("").List(ctx, o)
+		if err != nil {
+			return "", err
+		}
+		for _, p := range l.Items {
 			if r, ok := p.Annotations[MirrorAnnotation]; ok {
-				out = append(out, Annotated{Kind: "Pod", Namespace: p.Namespace, Name: p.Name, Rule: r, Owner: controllerOf(&p)})
+				add(Annotated{Kind: "Pod", Namespace: p.Namespace, Name: p.Name, Rule: r, Owner: controllerOf(&p)})
 			}
 		}
+		return l.Continue, nil
+	}); err != nil {
+		*errs = append(*errs, "list pods (annotations): "+err.Error())
 	}
-	if nodes, err := k.CoreV1().Nodes().List(ctx, metav1.ListOptions{}); err != nil {
-		*errs = append(*errs, "list nodes (annotations): "+err.Error())
-	} else {
-		for _, n := range nodes.Items {
+	if err := pages(ctx, func(o metav1.ListOptions) (string, error) {
+		l, err := k.CoreV1().Nodes().List(ctx, o)
+		if err != nil {
+			return "", err
+		}
+		for _, n := range l.Items {
 			if r, ok := n.Annotations[MirrorAnnotation]; ok {
-				out = append(out, Annotated{Kind: "Node", Name: n.Name, Rule: r})
+				add(Annotated{Kind: "Node", Name: n.Name, Rule: r})
 			}
 		}
+		return l.Continue, nil
+	}); err != nil {
+		*errs = append(*errs, "list nodes (annotations): "+err.Error())
 	}
-	if svcs, err := k.CoreV1().Services("").List(ctx, metav1.ListOptions{}); err == nil {
-		for _, s := range svcs.Items {
+	_ = pages(ctx, func(o metav1.ListOptions) (string, error) {
+		l, err := k.CoreV1().Services("").List(ctx, o)
+		if err != nil {
+			return "", err
+		}
+		for _, s := range l.Items {
 			if r, ok := s.Annotations[MirrorAnnotation]; ok {
-				out = append(out, Annotated{Kind: "Service", Namespace: s.Namespace, Name: s.Name, Rule: r})
+				add(Annotated{Kind: "Service", Namespace: s.Namespace, Name: s.Name, Rule: r})
 			}
 		}
-	}
-	if l, err := k.AppsV1().Deployments("").List(ctx, metav1.ListOptions{}); err == nil {
+		return l.Continue, nil
+	})
+	if err := pages(ctx, func(o metav1.ListOptions) (string, error) {
+		l, err := k.AppsV1().Deployments("").List(ctx, o)
+		if err != nil {
+			return "", err
+		}
 		for _, d := range l.Items {
 			if r, ok := d.Spec.Template.Annotations[MirrorAnnotation]; ok {
-				out = append(out, Annotated{Kind: "Deployment", Namespace: d.Namespace, Name: d.Name, Rule: r, OnTemplate: true})
+				add(Annotated{Kind: "Deployment", Namespace: d.Namespace, Name: d.Name, Rule: r, OnTemplate: true})
 			}
 		}
-	} else {
+		return l.Continue, nil
+	}); err != nil {
 		*errs = append(*errs, "list deployments (annotations): "+err.Error())
 	}
-	if l, err := k.AppsV1().StatefulSets("").List(ctx, metav1.ListOptions{}); err == nil {
+	_ = pages(ctx, func(o metav1.ListOptions) (string, error) {
+		l, err := k.AppsV1().StatefulSets("").List(ctx, o)
+		if err != nil {
+			return "", err
+		}
 		for _, d := range l.Items {
 			if r, ok := d.Spec.Template.Annotations[MirrorAnnotation]; ok {
-				out = append(out, Annotated{Kind: "StatefulSet", Namespace: d.Namespace, Name: d.Name, Rule: r, OnTemplate: true})
+				add(Annotated{Kind: "StatefulSet", Namespace: d.Namespace, Name: d.Name, Rule: r, OnTemplate: true})
 			}
 		}
-	}
-	if l, err := k.AppsV1().DaemonSets("").List(ctx, metav1.ListOptions{}); err == nil {
+		return l.Continue, nil
+	})
+	_ = pages(ctx, func(o metav1.ListOptions) (string, error) {
+		l, err := k.AppsV1().DaemonSets("").List(ctx, o)
+		if err != nil {
+			return "", err
+		}
 		for _, d := range l.Items {
 			if r, ok := d.Spec.Template.Annotations[MirrorAnnotation]; ok {
-				out = append(out, Annotated{Kind: "DaemonSet", Namespace: d.Namespace, Name: d.Name, Rule: r, OnTemplate: true})
+				add(Annotated{Kind: "DaemonSet", Namespace: d.Namespace, Name: d.Name, Rule: r, OnTemplate: true})
 			}
 		}
-	}
+		return l.Continue, nil
+	})
 	sort.Slice(out, func(i, j int) bool {
 		a, b := out[i], out[j]
 		return a.Kind+"/"+a.Namespace+"/"+a.Name < b.Kind+"/"+b.Namespace+"/"+b.Name

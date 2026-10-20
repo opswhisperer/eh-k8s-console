@@ -1,5 +1,6 @@
 # Static Go binary on distroless (includes CA roots, used to recognise public-CA sensor certs).
-FROM --platform=$BUILDPLATFORM golang:1.26-bookworm AS build
+# Base images are pinned by digest; Dependabot proposes updates.
+FROM --platform=$BUILDPLATFORM golang:1.26-bookworm@sha256:ee3901c61e423732605a51f1b8157c849ec01194ea0a274213b5202b2c11e7bf AS build
 ARG TARGETOS=linux
 ARG TARGETARCH=amd64
 ARG VERSION=dev
@@ -10,7 +11,7 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
     go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/eh-k8s-console ./cmd/eh-k8s-console
 
-FROM gcr.io/distroless/static-debian12:nonroot
+FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
 LABEL org.opencontainers.image.title="eh-k8s-console" \
       org.opencontainers.image.description="Community web console for the ExtraHop Kubernetes integration (not affiliated with ExtraHop Networks)" \
       org.opencontainers.image.source="https://github.com/opswhisperer/eh-k8s-console" \

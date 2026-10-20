@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -41,7 +42,19 @@ type Server struct {
 	Static   fs.FS
 	Log      *slog.Logger
 	Version  string
+
+	streamMu sync.Mutex
+	streams  map[string]int // open log streams per identity
 }
+
+// Limits on what one request can make the console hold in memory.
+const (
+	maxStreamsPerUser = 3
+	maxStreamsTotal   = 25
+	maxLogSince       = 24 * time.Hour
+	maxFetchLines     = 100000
+	fetchBytesPerPod  = 2 << 20
+)
 
 func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json")
@@ -55,6 +68,9 @@ func writeErr(w http.ResponseWriter, code int, err error) {
 }
 
 func decode(r *http.Request, v any) error {
+	if !auth.IsJSON(r) {
+		return errors.New("send the body as JSON with Content-Type: application/json")
+	}
 	dec := json.NewDecoder(http.MaxBytesReader(nil, r.Body, 4<<20))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(v); err != nil {
@@ -308,7 +324,16 @@ func requiredRole(ch apply.Change) string {
 }
 
 func (s *Server) plan(ctx context.Context, ch apply.Change) (*apply.Plan, error) {
-	snap, err := s.Scanner.Snapshot(ctx)
+	return s.planFrom(ctx, ch, false)
+}
+
+// planFrom plans against the shared snapshot, or a fresh one (apply must see the live state).
+func (s *Server) planFrom(ctx context.Context, ch apply.Change, fresh bool) (*apply.Plan, error) {
+	get := s.Scanner.Snapshot
+	if fresh {
+		get = s.Scanner.FreshSnapshot
+	}
+	snap, err := get(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -319,6 +344,12 @@ func (s *Server) handlePlan(w http.ResponseWriter, r *http.Request) {
 	var ch apply.Change
 	if err := decode(r, &ch); err != nil {
 		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	// A plan reveals whether a proposed secret equals the stored one ("no change"), so only
+	// admins, who may set secrets anyway, can plan secret changes.
+	if len(ch.Secrets) > 0 && !auth.From(r.Context()).Can(auth.Admin) {
+		writeErr(w, http.StatusForbidden, errors.New("planning Secret changes needs the admin role"))
 		return
 	}
 	p, err := s.plan(r.Context(), ch)
@@ -350,10 +381,16 @@ func (s *Server) handleApply(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusForbidden, fmt.Errorf("this change needs the %s role", role))
 		return
 	}
-	p, err := s.plan(r.Context(), req.Change)
+	p, err := s.planFrom(r.Context(), req.Change, true)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
+	}
+	if pemData, ok := req.Change.Config["sensorCert"]; ok {
+		if code, err := s.checkCertChange(r.Context(), pemData, auth.From(r.Context()), req.Change.Force); err != nil {
+			writeErr(w, code, err)
+			return
+		}
 	}
 	if req.Hash == "" || planHash(p) != req.Hash {
 		writeJSON(w, http.StatusConflict, map[string]any{"error": "the cluster changed since you reviewed this change; review it again", "plan": planResponse{p, planHash(p), requiredRole(req.Change)}})
@@ -371,6 +408,49 @@ func (s *Server) handleApply(w http.ResponseWriter, r *http.Request) {
 	}
 	go s.Scanner.Scan(context.WithoutCancel(r.Context()))
 	writeJSON(w, http.StatusOK, res)
+}
+
+// checkCertChange enforces on the server what the UI only suggests: a new sensorCert must trust the
+// sensor's current certificate (admins may force past that), and an operator may store only
+// certificates the sensor itself presents or that verified its chain, never an arbitrary anchor.
+func (s *Server) checkCertChange(ctx context.Context, pemData string, id *auth.Identity, force bool) (int, error) {
+	snap, err := s.Scanner.FreshSnapshot(ctx)
+	if err != nil {
+		return http.StatusBadGateway, err
+	}
+	a := s.Scanner.ProbeCerts(ctx, snap)
+	admin := id.Can(auth.Admin)
+	if err := certs.VerifyCandidate(pemData, a.Probe, SensorName(snap.ConfigData), time.Now()); err != nil && !(admin && force) {
+		return http.StatusBadRequest, fmt.Errorf("refused: %w", err)
+	}
+	if a.Probe == nil || len(a.Probe.Chain) == 0 {
+		if admin && force {
+			return 0, nil
+		}
+		return http.StatusBadRequest, errors.New("refused: the sensor could not be probed, so the bundle can't be checked (an admin can force it)")
+	}
+	if admin {
+		return 0, nil
+	}
+	allowed := map[string]bool{}
+	for _, c := range a.Probe.Chain {
+		allowed[c.SHA256] = true
+	}
+	for _, mode := range []string{certs.ModeCAChain, certs.ModeFullChain} {
+		if b, err := certs.BuildBundle(a, mode); err == nil {
+			cs, _ := certs.ParseBundle(b)
+			for _, c := range cs {
+				allowed[certs.Fingerprint(c)] = true
+			}
+		}
+	}
+	cs, _ := certs.ParseBundle(pemData)
+	for _, c := range cs {
+		if !allowed[certs.Fingerprint(c)] {
+			return http.StatusForbidden, fmt.Errorf("operators can store only certificates the sensor presents (or the root that verified them); %s isn't one. An admin can apply this bundle", c.Subject)
+		}
+	}
+	return 0, nil
 }
 
 func (s *Server) handleRollout(w http.ResponseWriter, r *http.Request) {
@@ -532,6 +612,12 @@ func (s *Server) handleLogStream(w http.ResponseWriter, r *http.Request) {
 	if n, err := strconv.ParseInt(r.URL.Query().Get("tail"), 10, 64); err == nil && n >= 0 && n <= 5000 {
 		tail = n
 	}
+	release, err := s.openStream(who(r))
+	if err != nil {
+		writeErr(w, http.StatusTooManyRequests, err)
+		return
+	}
+	defer release()
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Accel-Buffering", "no")
@@ -561,13 +647,45 @@ func (s *Server) handleLogStream(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// openStream admits a log stream if the caller and the server are under their limits.
+func (s *Server) openStream(user string) (func(), error) {
+	s.streamMu.Lock()
+	defer s.streamMu.Unlock()
+	if s.streams == nil {
+		s.streams = map[string]int{}
+	}
+	total := 0
+	for _, n := range s.streams {
+		total += n
+	}
+	if s.streams[user] >= maxStreamsPerUser {
+		return nil, fmt.Errorf("you already have %d live log streams open; close one first", maxStreamsPerUser)
+	}
+	if total >= maxStreamsTotal {
+		return nil, errors.New("too many live log streams are open; try again shortly")
+	}
+	s.streams[user]++
+	return func() {
+		s.streamMu.Lock()
+		defer s.streamMu.Unlock()
+		if s.streams[user]--; s.streams[user] <= 0 {
+			delete(s.streams, user)
+		}
+	}, nil
+}
+
 func (s *Server) handleLogFetch(w http.ResponseWriter, r *http.Request) {
 	targets, err := s.logTargets(r.Context(), r.URL.Query())
 	if err != nil {
 		writeErr(w, http.StatusBadGateway, err)
 		return
 	}
-	lines := s.Logs.Fetch(r.Context(), targets, logs.FollowOptions{Since: durationParam(r.URL.Query().Get("since"), time.Hour), Previous: r.URL.Query().Get("previous") == "true"})
+	since := durationParam(r.URL.Query().Get("since"), time.Hour)
+	if since > maxLogSince {
+		since = maxLogSince
+	}
+	lines := s.Logs.Fetch(r.Context(), targets, logs.FollowOptions{Since: since, Previous: r.URL.Query().Get("previous") == "true",
+		LimitBytes: fetchBytesPerPod, MaxLines: maxFetchLines})
 	if r.URL.Query().Get("format") == "text" {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.Header().Set("Content-Disposition", `attachment; filename="extrahop-integration-logs.txt"`)
@@ -802,7 +920,11 @@ func (s *Server) handlePods(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ns := r.URL.Query().Get("namespace")
-	l, err := s.Scanner.Clients.Kube.CoreV1().Pods(ns).List(r.Context(), metav1.ListOptions{LabelSelector: r.URL.Query().Get("selector")})
+	if ns == "" {
+		writeErr(w, http.StatusBadRequest, errors.New("namespace is required"))
+		return
+	}
+	l, err := s.Scanner.Clients.Kube.CoreV1().Pods(ns).List(r.Context(), metav1.ListOptions{LabelSelector: r.URL.Query().Get("selector"), Limit: 1000})
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return

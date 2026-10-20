@@ -47,6 +47,11 @@ On the Sensor certificate page:
 Each option becomes a normal change: you review the diff, then apply it. The console restarts only
 the workloads that read `sensorCert`.
 
+The server checks the bundle again at apply time, whatever the UI shows:
+
+- **Any bundle:** it must trust the sensor's current certificate. Admins can force past this, for example while the sensor is down.
+- **Operators:** they can store only certificates the sensor itself presents, or the root that verified them. Adding any other trust anchor needs an admin.
+
 ## Automatic updates
 
 | Setting | Effect |

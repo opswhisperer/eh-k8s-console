@@ -1,0 +1,30 @@
+# Only the authenticating proxy may reach the console's UI/API port; metrics (9090) only from the
+# monitoring namespace. Edit the selectors to match your proxy and Prometheus.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: eh-k8s-console
+  labels:
+    app.kubernetes.io/name: eh-k8s-console
+    app.kubernetes.io/part-of: eh-k8s-console
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: eh-k8s-console
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: auth-proxy      # your proxy's namespace
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: oauth2-proxy        # your proxy's pods
+      ports:
+        - port: 8080
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - port: 9090
