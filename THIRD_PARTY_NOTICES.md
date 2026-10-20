@@ -28,7 +28,7 @@ covers only modules compiled into the binary. Regenerate it when dependencies ch
 | [github.com/google/uuid](https://pkg.go.dev/github.com/google/uuid@v1.6.0) | v1.6.0 | BSD-3-Clause |
 | [github.com/josharian/intern](https://pkg.go.dev/github.com/josharian/intern@v1.0.0) | v1.0.0 | MIT |
 | [github.com/json-iterator/go](https://pkg.go.dev/github.com/json-iterator/go@v1.1.12) | v1.1.12 | MIT |
-| [github.com/klauspost/compress](https://pkg.go.dev/github.com/klauspost/compress@v1.17.9) | v1.17.9 | Apache-2.0 |
+| [github.com/klauspost/compress](https://pkg.go.dev/github.com/klauspost/compress@v1.18.7) | v1.18.7 | Apache-2.0 |
 | [github.com/mailru/easyjson](https://pkg.go.dev/github.com/mailru/easyjson@v0.7.7) | v0.7.7 | MIT |
 | [github.com/modern-go/concurrent](https://pkg.go.dev/github.com/modern-go/concurrent@v0.0.0-20180306012644-bacd9c7ef1dd) | v0.0.0-20180306012644-bacd9c7ef1dd | Apache-2.0 |
 | [github.com/modern-go/reflect2](https://pkg.go.dev/github.com/modern-go/reflect2@v1.0.2) | v1.0.2 | Apache-2.0 |
