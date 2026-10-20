@@ -88,10 +88,38 @@ spec:
         variables.newT.spec == variables.oldT.spec &&
         (has(variables.newT.metadata.labels) ? variables.newT.metadata.labels : {}) == (has(variables.oldT.metadata.labels) ? variables.oldT.metadata.labels : {}) &&
         object.spec.selector == oldObject.spec.selector &&
-        (!has(oldObject.spec.replicas) || object.spec.replicas == oldObject.spec.replicas) &&
         (has(object.metadata.labels) ? object.metadata.labels : {}) == (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {}) &&
         (has(object.metadata.annotations) ? object.metadata.annotations : {}) == (has(oldObject.metadata.annotations) ? oldObject.metadata.annotations : {})
-      message: eh-k8s-console may not change a workload's pod spec, labels, selector, replicas or annotations.
+      message: eh-k8s-console may not change a workload's pod spec, labels, selector or annotations.
+---
+# Deployments and StatefulSets only: DaemonSets have no spec.replicas, so this check can't share
+# the policy above (the expression would fail type checking for them).
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: eh-k8s-console-replicas-unchanged
+  labels:
+    app.kubernetes.io/name: eh-k8s-console
+    app.kubernetes.io/part-of: eh-k8s-console
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["apps"]
+        apiVersions: ["v1"]
+        operations: ["UPDATE"]
+        resources: ["deployments", "statefulsets"]
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values: ["extrahop"]
+  matchConditions:
+    - name: console-only
+      expression: request.userInfo.username == 'system:serviceaccount:extrahop:eh-k8s-console'
+  validations:
+    - expression: "!has(oldObject.spec.replicas) || (has(object.spec.replicas) && object.spec.replicas == oldObject.spec.replicas)"
+      message: eh-k8s-console may not scale workloads.
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding
@@ -113,4 +141,15 @@ metadata:
     app.kubernetes.io/part-of: eh-k8s-console
 spec:
   policyName: eh-k8s-console-template-annotation-only
+  validationActions: [Deny]
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: eh-k8s-console-replicas-unchanged
+  labels:
+    app.kubernetes.io/name: eh-k8s-console
+    app.kubernetes.io/part-of: eh-k8s-console
+spec:
+  policyName: eh-k8s-console-replicas-unchanged
   validationActions: [Deny]

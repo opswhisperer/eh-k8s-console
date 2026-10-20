@@ -14,6 +14,7 @@ resources:
 components:
   - ../../components/annotations   # optional: edit the mirror annotation cluster-wide
   - ../../components/prometheus    # optional: needs the Prometheus Operator CRDs
+  - ../../components/grafana       # optional: dashboard for Grafana's sidecar
   # - ../../components/external-secrets   # or create the Secret with External Secrets
 configMapGenerator:
   - name: eh-k8s-console-config
@@ -22,4 +23,4 @@ configMapGenerator:
       - config.yaml
 images:
   - name: ghcr.io/opswhisperer/eh-k8s-console
-    newTag: "0.1.1"
+    newTag: "0.1.2"

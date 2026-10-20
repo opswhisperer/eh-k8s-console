@@ -30,9 +30,9 @@ remote base pinned to a release or as a local path:
 
 ```yaml
 resources:
-  - https://github.com/opswhisperer/eh-k8s-console//deploy/base?ref=v0.1.1
+  - https://github.com/opswhisperer/eh-k8s-console//deploy/base?ref=v0.1.2
 components:
-  - https://github.com/opswhisperer/eh-k8s-console//deploy/components/prometheus?ref=v0.1.1
+  - https://github.com/opswhisperer/eh-k8s-console//deploy/components/prometheus?ref=v0.1.2
 ```
 
 ## 2. Create the Secret
@@ -77,6 +77,7 @@ kubectl -n extrahop exec deploy/eh-k8s-console -- /eh-k8s-console validate
 |---|---|
 | `components/annotations` | A ClusterRole to list and patch `extrahop.com/traffic-mirror-rule` on pods, workload pod templates and nodes, plus ValidatingAdmissionPolicies that let the console's service account change **only** that annotation (Kubernetes 1.30+). Also set `integration.annotations.enabled: true`, and scope it with `allowNamespaces` / `excludeNamespaces`. The policies name the service account `extrahop:eh-k8s-console`; edit them if you deploy elsewhere. |
 | `components/prometheus` | A ServiceMonitor for the metrics port and a PrometheusRule with the alerts in [alerts.md](alerts.md). Add your Prometheus' selector labels with a patch if it needs them. |
+| `components/grafana` | A Grafana dashboard ConfigMap (label `grafana_dashboard=1`) for the console's metrics: certificate state and expiry, findings, workload readiness, restarts and recurring errors. Needs Grafana's dashboard sidecar and a scrape of port 9090. |
 | `components/read-only` | Removes every write permission from the Role and starts the server with `-read-only`. |
 | `components/external-secrets` | An ExternalSecret that builds Secret `eh-k8s-console`. |
 

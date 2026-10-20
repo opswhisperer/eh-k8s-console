@@ -23,6 +23,20 @@ authentication. Keep it inside the cluster. `components/prometheus` adds a Servi
 | `ehk_workload_ready`, `ehk_workload_desired` | `workload`, `kind`, `component` | Pods per integration workload. |
 | `ehk_pod_restarts` | `pod`, `component`, `node` | Container restarts. |
 
+## Dashboard
+
+`components/grafana` adds a Grafana dashboard ("ExtraHop Kubernetes integration") as a ConfigMap
+labelled `grafana_dashboard=1`, which Grafana's dashboard sidecar (kube-prometheus-stack, the
+Grafana Helm chart) loads automatically. It shows:
+
+- **Health:** certificate state and time to expiry, critical problems and warnings, the share of integration pods ready, and the time since the last scan.
+- **Workloads:** ready against desired pods per component, and restarts.
+- **Findings and logs:** findings by severity over time, the top recurring errors, and every current finding.
+- **Sensor certificate:** days left on every certificate, and the trust checks over time.
+
+It has a data-source picker and a namespace filter, so one dashboard can cover several clusters or
+consoles. To change it, edit `hack/dashboard.py` and run `python3 hack/dashboard.py`.
+
 ## Alert rules
 
 `components/prometheus` ships these rules:

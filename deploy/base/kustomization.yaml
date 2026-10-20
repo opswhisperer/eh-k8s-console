@@ -17,4 +17,4 @@ configMapGenerator:
 images:
   - name: eh-k8s-console
     newName: ghcr.io/opswhisperer/eh-k8s-console
-    newTag: "0.1.1"
+    newTag: "0.1.2"

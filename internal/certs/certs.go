@@ -348,7 +348,9 @@ func Assess(bundlePEM string, probe *Probe, serverName string, systemRoots *x509
 	}
 
 	liveFP := Fingerprint(leaf)
-	a.LeafChanged = !hasFP(a.Bundle, liveFP)
+	// "Changed" only makes sense when the bundle pins a leaf: a CA-only bundle never holds the
+	// sensor's leaf, and that's the recommended state, not drift.
+	a.LeafChanged = a.bundleHasLeaf() && !hasFP(a.Bundle, liveFP)
 	if a.PublicCA {
 		a.Recommended = "ca-chain"
 	} else {
@@ -417,9 +419,11 @@ func Assess(bundlePEM string, probe *Probe, serverName string, systemRoots *x509
 	return a
 }
 
+// bundleHasLeaf reports whether the bundle pins an end-entity certificate (a leaf, or a
+// self-signed certificate that isn't a CA).
 func (a *Assessment) bundleHasLeaf() bool {
 	for _, b := range a.Bundle {
-		if b.Role == "leaf" {
+		if b.Role == "leaf" || b.Role == "self-signed" {
 			return true
 		}
 	}
@@ -440,7 +444,11 @@ func (a *Assessment) finish() {
 	a.Severity = finding.Max(a.Findings)
 	switch a.State {
 	case StateOK:
-		a.Summary = "sensorCert matches the sensor's certificate."
+		if a.bundleHasLeaf() {
+			a.Summary = "sensorCert matches the sensor's certificate."
+		} else {
+			a.Summary = "sensorCert trusts the sensor's certificate through its CA chain."
+		}
 	case StateRotatedTrusted:
 		a.Summary = "The sensor renewed its certificate; sensorCert still trusts it."
 	case StateBroken:

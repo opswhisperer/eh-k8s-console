@@ -1,0 +1,16 @@
+# Optional: a Grafana dashboard for the console's metrics, as a ConfigMap labelled
+# grafana_dashboard=1 for the Grafana sidecar (kube-prometheus-stack and the Grafana Helm chart
+# watch that label). Needs components/prometheus (or another scrape of port 9090).
+# Regenerate the JSON with: python3 hack/dashboard.py
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+configMapGenerator:
+  - name: eh-k8s-console-dashboard
+    files:
+      - eh-k8s-console.json
+    options:
+      disableNameSuffixHash: true   # a stable name, so updates replace the dashboard
+      labels:
+        grafana_dashboard: "1"
+        app.kubernetes.io/name: eh-k8s-console
+        app.kubernetes.io/part-of: eh-k8s-console

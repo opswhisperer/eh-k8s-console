@@ -265,3 +265,25 @@ func TestProbeTLSCapturesChain(t *testing.T) {
 		t.Fatalf("chain = %+v", probe.Chain)
 	}
 }
+
+// After a "CA chain only" refresh the bundle holds no leaf: that's the healthy, recommended state.
+func TestCAOnlyBundleIsOK(t *testing.T) {
+	p := newPKI(t)
+	leaf := mk(t, sni, p.inter, false, days(80), sni)
+	bundle := EncodeBundle([]*x509.Certificate{p.inter.cert, p.root.cert})
+	a := Assess(bundle, NewProbeFromCerts("", sni, []*x509.Certificate{leaf.cert, p.inter.cert}, now), sni, p.pool(), th, now)
+	if a.State != StateOK || a.LeafChanged || !a.TrustedByBundle {
+		t.Fatalf("CA-only bundle: state=%s leafChanged=%v trusted=%v findings=%+v", a.State, a.LeafChanged, a.TrustedByBundle, a.Findings)
+	}
+	if hasCode(a, "leaf_rotated") != nil || hasCode(a, "bundle_pins_leaf") != nil {
+		t.Fatalf("no rotation or pinning advice expected: %+v", a.Findings)
+	}
+	if a.Summary != "sensorCert trusts the sensor's certificate through its CA chain." {
+		t.Fatalf("summary = %q", a.Summary)
+	}
+	// And the next renewal stays OK.
+	next := mk(t, sni, p.inter, false, days(170), sni)
+	if b := Assess(bundle, NewProbeFromCerts("", sni, []*x509.Certificate{next.cert, p.inter.cert}, now), sni, p.pool(), th, now); b.State != StateOK {
+		t.Fatalf("after renewal: %s", b.State)
+	}
+}

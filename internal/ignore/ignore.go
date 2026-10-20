@@ -32,7 +32,7 @@ type Rule struct {
 	Note      string    `json:"note,omitempty"`
 	Source    string    `json:"source"`
 	CreatedBy string    `json:"createdBy,omitempty"`
-	CreatedAt time.Time `json:"createdAt,omitempty"`
+	CreatedAt time.Time `json:"createdAt,omitzero"`
 
 	re *regexp.Regexp
 }
