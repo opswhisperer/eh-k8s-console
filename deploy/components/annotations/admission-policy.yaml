@@ -77,6 +77,13 @@ spec:
       expression: "has(variables.oldT.metadata.annotations) ? variables.oldT.metadata.annotations : {}"
     - name: newAnn
       expression: "has(variables.newT.metadata.annotations) ? variables.newT.metadata.annotations : {}"
+    # The API server itself bumps this DaemonSet annotation whenever the pod template changes.
+    - name: apiServerKeys
+      expression: "['deprecated.daemonset.template.generation']"
+    - name: oldObjAnn
+      expression: "has(oldObject.metadata.annotations) ? oldObject.metadata.annotations : {}"
+    - name: newObjAnn
+      expression: "has(object.metadata.annotations) ? object.metadata.annotations : {}"
   validations:
     - expression: >-
         variables.newAnn.all(k, k == variables.key || (k in variables.oldAnn && variables.oldAnn[k] == variables.newAnn[k])) &&
@@ -89,7 +96,8 @@ spec:
         (has(variables.newT.metadata.labels) ? variables.newT.metadata.labels : {}) == (has(variables.oldT.metadata.labels) ? variables.oldT.metadata.labels : {}) &&
         object.spec.selector == oldObject.spec.selector &&
         (has(object.metadata.labels) ? object.metadata.labels : {}) == (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {}) &&
-        (has(object.metadata.annotations) ? object.metadata.annotations : {}) == (has(oldObject.metadata.annotations) ? oldObject.metadata.annotations : {})
+        variables.newObjAnn.all(k, k in variables.apiServerKeys || (k in variables.oldObjAnn && variables.oldObjAnn[k] == variables.newObjAnn[k])) &&
+        variables.oldObjAnn.all(k, k in variables.apiServerKeys || k in variables.newObjAnn)
       message: eh-k8s-console may not change a workload's pod spec, labels, selector or annotations.
 ---
 # Deployments and StatefulSets only: DaemonSets have no spec.replicas, so this check can't share
