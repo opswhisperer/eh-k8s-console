@@ -30,9 +30,9 @@ remote base pinned to a release or as a local path:
 
 ```yaml
 resources:
-  - https://github.com/opswhisperer/eh-k8s-console//deploy/base?ref=v0.1.3
+  - https://github.com/opswhisperer/eh-k8s-console//deploy/base?ref=v0.1.4
 components:
-  - https://github.com/opswhisperer/eh-k8s-console//deploy/components/prometheus?ref=v0.1.3
+  - https://github.com/opswhisperer/eh-k8s-console//deploy/components/prometheus?ref=v0.1.4
 ```
 
 ## 2. Create the Secret
