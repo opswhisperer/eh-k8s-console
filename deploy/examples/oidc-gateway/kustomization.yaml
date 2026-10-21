@@ -23,4 +23,4 @@ configMapGenerator:
       - config.yaml
 images:
   - name: ghcr.io/opswhisperer/eh-k8s-console
-    newTag: "0.1.4"
+    newTag: "0.1.5"

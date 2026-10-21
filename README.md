@@ -83,7 +83,7 @@ kubectl create secret generic eh-k8s-console -n extrahop \
   --from-file=api-keys.yaml=./api-keys.yaml
 
 # 3. Install and open it
-kubectl apply -k 'https://github.com/opswhisperer/eh-k8s-console//deploy/base?ref=v0.1.4'
+kubectl apply -k 'https://github.com/opswhisperer/eh-k8s-console//deploy/base?ref=v0.1.5'
 kubectl -n extrahop port-forward svc/eh-k8s-console 8080:80
 curl -H "Authorization: Bearer <key from step 1>" http://localhost:8080/api/state
 ```
