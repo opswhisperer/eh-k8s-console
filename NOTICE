@@ -12,5 +12,11 @@ License; they are included only to identify the product this tool works with. Re
 the references in web/static/) if you redistribute this software in a way that could suggest
 endorsement by ExtraHop.
 
+The eh-k8s-console icon (web/static/icon.svg) is an original drawing after the Kubernetes logo,
+which is by The Kubernetes Authors and licensed under CC BY 4.0
+(https://github.com/kubernetes/kubernetes/tree/master/logo). Kubernetes is a registered trademark
+of The Linux Foundation. This project is not affiliated with the Kubernetes project, the CNCF or
+The Linux Foundation.
+
 Third-party software included in the binary and image is listed, with licenses, in
 THIRD_PARTY_NOTICES.md.

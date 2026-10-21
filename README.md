@@ -1,4 +1,4 @@
-# eh-k8s-console
+# <img src="web/static/icon.svg" alt="" width="40" height="40" align="top"> eh-k8s-console
 
 > [!IMPORTANT]
 > **This is an independent community project. It is not developed, supported, endorsed or
