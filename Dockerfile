@@ -1,6 +1,6 @@
 # Static Go binary on distroless (includes CA roots, used to recognise public-CA sensor certs).
 # Base images are pinned by digest; Dependabot proposes updates.
-FROM --platform=$BUILDPLATFORM golang:1.26-bookworm@sha256:ee3901c61e423732605a51f1b8157c849ec01194ea0a274213b5202b2c11e7bf AS build
+FROM --platform=$BUILDPLATFORM golang:1.27-bookworm@sha256:972b4110ba0f47539a975c31e52c64765e1ff19f2d74469ae4a595c6676e80a5 AS build
 ARG TARGETOS=linux
 ARG TARGETARCH=amd64
 ARG VERSION=dev
