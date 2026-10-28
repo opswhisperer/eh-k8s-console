@@ -221,6 +221,23 @@ func TestHelmManagedIsBlocked(t *testing.T) {
 	}
 }
 
+func TestArgoCDManagedIsBlocked(t *testing.T) {
+	e, _, snap := setup(t, testfix.Options{})
+	s := snap()
+	s.ArgoCD = &discovery.ArgoCDInfo{Application: "eh-integration"}
+	p, _ := e.Plan(s, Change{Config: map[string]string{"clusterName": "x"}})
+	if !p.Blocked || !strings.Contains(p.BlockReason, "Argo CD") || !strings.Contains(p.BlockReason, "eh-integration") {
+		t.Fatalf("blocked=%v reason=%s", p.Blocked, p.BlockReason)
+	}
+	if p, _ = e.Plan(s, Change{Config: map[string]string{"clusterName": "x"}, Force: true}); p.Blocked {
+		t.Fatalf("Force should apply anyway: %s", p.BlockReason)
+	}
+	// a rollout restart changes nothing in git: still allowed
+	if p, _ = e.Plan(s, Change{Restart: []string{s.Workloads[0].Name}}); p.Blocked {
+		t.Fatalf("restart-only plan blocked: %s", p.BlockReason)
+	}
+}
+
 func TestAnnotatePodsNowAndPersist(t *testing.T) {
 	ctrl := true
 	dep := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: "web", Namespace: "apps"}}

@@ -63,6 +63,28 @@ func TestDiscoverSensorGeneratedLayout(t *testing.T) {
 	if s.Helm != nil {
 		t.Fatalf("the fixture is raw manifests, not Helm: %+v", s.Helm)
 	}
+	if s.ArgoCD != nil {
+		t.Fatalf("the fixture has no Argo CD tracking: %+v", s.ArgoCD)
+	}
+}
+
+func TestDiscoverArgoCDTracking(t *testing.T) {
+	cs := testfix.Clientset(t, testfix.Options{})
+	cm, err := cs.CoreV1().ConfigMaps(opts().Namespace).Get(context.Background(), opts().ConfigMap, metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cm.Annotations = map[string]string{discovery.ArgoCDTrackingAnnotation: "eh-integration:/ConfigMap:" + cm.Namespace + "/" + cm.Name}
+	if _, err := cs.CoreV1().ConfigMaps(cm.Namespace).Update(context.Background(), cm, metav1.UpdateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	s, err := discovery.Discover(context.Background(), discovery.Clients{Kube: cs}, opts())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.ArgoCD == nil || s.ArgoCD.Application != "eh-integration" {
+		t.Fatalf("argocd = %+v", s.ArgoCD)
+	}
 }
 
 func TestParseArgs(t *testing.T) {

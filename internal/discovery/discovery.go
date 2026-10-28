@@ -49,6 +49,7 @@ type Snapshot struct {
 	Secrets        []*SecretInfo     `json:"secrets"`
 	Refs           []Ref             `json:"refs"`
 	Helm           *HelmInfo         `json:"helm,omitempty"`
+	ArgoCD         *ArgoCDInfo       `json:"argocd,omitempty"`
 	Namespaces     []string          `json:"namespaces"`
 	Annotated      []Annotated       `json:"annotated,omitempty"`
 	Errors         []string          `json:"errors,omitempty"`
@@ -137,6 +138,11 @@ type HelmInfo struct {
 	Chart   string `json:"chart"`
 }
 
+// ArgoCDInfo names the Argo CD application that syncs the integration's objects from git (annotation tracking).
+type ArgoCDInfo struct {
+	Application string `json:"application"`
+}
+
 type Annotated struct {
 	Kind      string `json:"kind"`
 	Namespace string `json:"namespace,omitempty"`
@@ -178,6 +184,7 @@ func Discover(ctx context.Context, cl Clients, o Options) (*Snapshot, error) {
 			s.ConfigData[key] = v
 		}
 		s.Helm = helmOf(cm.ObjectMeta)
+		s.ArgoCD = argoCDOf(cm.ObjectMeta)
 	case apierrors.IsNotFound(err):
 	default:
 		return nil, fmt.Errorf("read ConfigMap %s/%s: %w", o.Namespace, o.ConfigMap, err)
@@ -205,6 +212,9 @@ func Discover(ctx context.Context, cl Clients, o Options) (*Snapshot, error) {
 		if s.Helm == nil {
 			s.Helm = helmOf(d.ObjectMeta)
 		}
+		if s.ArgoCD == nil {
+			s.ArgoCD = argoCDOf(d.ObjectMeta)
+		}
 	}
 	dss, err := k.AppsV1().DaemonSets(o.Namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
@@ -223,6 +233,9 @@ func Discover(ctx context.Context, cl Clients, o Options) (*Snapshot, error) {
 		})
 		if s.Helm == nil {
 			s.Helm = helmOf(d.ObjectMeta)
+		}
+		if s.ArgoCD == nil {
+			s.ArgoCD = argoCDOf(d.ObjectMeta)
 		}
 	}
 	sort.Slice(s.Workloads, func(i, j int) bool { return s.Workloads[i].Name < s.Workloads[j].Name })
@@ -315,6 +328,18 @@ func Discover(ctx context.Context, cl Clients, o Options) (*Snapshot, error) {
 		s.Annotated = append(s.Annotated, annotated(ctx, k, &s.Errors)...)
 	}
 	return s, nil
+}
+
+// ArgoCDTrackingAnnotation is how Argo CD (annotation tracking, its default since 3.0) marks the objects an
+// application manages: "<app>:<group>/<kind>:<namespace>/<name>".
+const ArgoCDTrackingAnnotation = "argocd.argoproj.io/tracking-id"
+
+func argoCDOf(m metav1.ObjectMeta) *ArgoCDInfo {
+	app, _, ok := strings.Cut(m.Annotations[ArgoCDTrackingAnnotation], ":")
+	if !ok || app == "" {
+		return nil
+	}
+	return &ArgoCDInfo{Application: app}
 }
 
 func helmOf(m metav1.ObjectMeta) *HelmInfo {
