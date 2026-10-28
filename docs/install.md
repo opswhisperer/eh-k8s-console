@@ -117,6 +117,10 @@ IMAGE=registry.example.com/eh-k8s-console ./build.sh 1.0.0
 Then point your overlay at it with `images:`. The image runs as UID 65532 on a read-only root
 filesystem, with every capability dropped.
 
+## Argo CD
+
+To deploy the console with Argo CD, or run it next to an integration Argo CD manages, see [Running with Argo CD](argocd.md).
+
 ## Upgrade and uninstall
 
 - **Upgrade:** change the image tag (or `?ref=`) and `kubectl apply -k` again. The console keeps its state in ConfigMaps (history, alert state, ignore rules), so pods are disposable.
