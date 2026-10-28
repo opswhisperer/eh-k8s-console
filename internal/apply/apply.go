@@ -44,7 +44,7 @@ type Change struct {
 	// Restart adds workloads to restart even if nothing they read changed.
 	Restart []string `json:"restart,omitempty"`
 	Reason  string   `json:"reason,omitempty"`
-	// Force applies despite new critical findings or Helm ownership (admin only).
+	// Force applies despite new critical findings or Helm / Argo CD ownership (admin only).
 	Force bool `json:"force,omitempty"`
 }
 
@@ -317,6 +317,12 @@ func (e *Engine) Plan(live *discovery.Snapshot, ch Change) (*Plan, error) {
 		p.Notes = append(p.Notes, fmt.Sprintf("Helm release %q manages these objects: the next helm upgrade overwrites a live change. Prefer Export → Helm values.", live.Helm.Release))
 		if !ch.Force && !p.Empty {
 			p.Blocked, p.BlockReason = true, "the integration is managed by Helm"
+		}
+	}
+	if live.ArgoCD != nil && len(p.Changes) > 0 {
+		p.Notes = append(p.Notes, fmt.Sprintf("Argo CD application %q syncs these objects from git: with self-heal it puts the git version back within seconds, and any later sync overwrites a live change. Change the git repository instead (Export → manifests shows the change).", live.ArgoCD.Application))
+		if !ch.Force {
+			p.Blocked, p.BlockReason = true, "the integration is managed by Argo CD (application "+live.ArgoCD.Application+")"
 		}
 	}
 

@@ -135,6 +135,7 @@ function readOnlyBanner() {
   const out = [];
   if (app.info && app.info.readOnly) out.push(h("div", { class: "banner info" }, "Read-only console: you can review and export changes, but not apply them."));
   if (app.state && app.state.helm) out.push(h("div", { class: "banner" }, `Helm release “${app.state.helm.release}” manages the integration. Live changes are overwritten by the next helm upgrade, so export Helm values instead.`));
+  if (app.state && app.state.argocd) out.push(h("div", { class: "banner" }, `Argo CD application “${app.state.argocd.application}” syncs the integration from git. A live change is put back by self-heal or the next sync, so change the git repository instead (Export → manifests shows the change).`));
   return out;
 }
 

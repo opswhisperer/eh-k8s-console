@@ -188,6 +188,7 @@ func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
 		out["workloads"] = snap.Workloads
 		out["secrets"] = snap.Secrets
 		out["helm"] = snap.Helm
+		out["argocd"] = snap.ArgoCD
 		out["configMapFound"] = snap.ConfigMapFound
 		out["namespace"] = snap.Namespace
 		p := policy.FromConfig(snap.ConfigData)
@@ -289,7 +290,7 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 	p := policy.FromConfig(snap.ConfigData)
 	writeJSON(w, http.StatusOK, map[string]any{"settings": settings, "groups": model.Groups, "secrets": secrets, "images": images,
 		"listSeparator": s.Cfg.Integration.ListSeparator, "modes": policy.Modes, "mode": policy.DetectMode(p),
-		"helm": snap.Helm, "readOnly": s.Cfg.ReadOnly, "configMapFound": snap.ConfigMapFound})
+		"helm": snap.Helm, "argocd": snap.ArgoCD, "readOnly": s.Cfg.ReadOnly, "configMapFound": snap.ConfigMapFound})
 }
 
 // ---- plan / apply ----
