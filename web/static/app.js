@@ -324,7 +324,9 @@ function settingField(s) {
   return h("div", { class: "field", id: "setting-" + s.key },
     h("div", {}, h("span", { class: "name" }, s.label), h("span", { class: "key" }, s.key), !s.present ? h("span", { class: "badge" }, "not set") : null),
     h("div", {}, inputFor(s), h("p", { class: "doc" }, s.doc),
-      h("p", { class: "used" }, used + ".", linked.length ? ` Also passed as ${linked[0].via.replace("arg:", "")} to the session-key forwarder; saving updates both.` : ""),
+      h("p", { class: "used" }, used + ".", linked.length ? ((linked[0].value || "").includes("$(")
+        ? ` Also passed as ${linked[0].via.replace("arg:", "")} to the session-key forwarder, which reads it from this ConfigMap through its env.`
+        : ` Also passed as ${linked[0].via.replace("arg:", "")} to the session-key forwarder; saving updates both.`) : ""),
       (s.problems || []).map((p) => h("p", { class: "err" }, p))));
 }
 

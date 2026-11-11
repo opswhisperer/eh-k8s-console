@@ -83,6 +83,28 @@ type Options struct {
 	// Namespaces to create (default: extrahop, default, apps, kube-system).
 	Namespaces []string
 	Extra      []k8sruntime.Object
+	// ChartEnvArgs renders session-key-forwarder the way Helm chart 1.2.0+ does: -server and
+	// -server-name-override are $(SENSOR_HOST) / $(SERVER_NAME_OVERRIDE), with env vars read
+	// from the ConfigMap. The default is the sensor manifest / chart 1.1.0 layout (literal args).
+	ChartEnvArgs bool
+}
+
+// UseChartEnvArgs rewrites a session-key-forwarder container into the chart 1.2.0 layout.
+func UseChartEnvArgs(c *corev1.Container) {
+	ref := func(key string) *corev1.EnvVarSource {
+		return &corev1.EnvVarSource{ConfigMapKeyRef: &corev1.ConfigMapKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: CM}, Key: key}}
+	}
+	c.Env = append(c.Env,
+		corev1.EnvVar{Name: "SENSOR_HOST", ValueFrom: ref("mgmtTarget")},
+		corev1.EnvVar{Name: "SERVER_NAME_OVERRIDE", ValueFrom: ref("serverNameOverride")})
+	for i := 0; i+1 < len(c.Args); i++ {
+		switch c.Args[i] {
+		case "-server":
+			c.Args[i+1] = "$(SENSOR_HOST)"
+		case "-server-name-override":
+			c.Args[i+1] = "$(SERVER_NAME_OVERRIDE)"
+		}
+	}
 }
 
 // Clientset builds a fake clientset with matching key pairs, Secrets and namespaces, and marks
@@ -104,6 +126,11 @@ func Clientset(t testing.TB, o Options) *fake.Clientset {
 			v.Generation, v.Status.ObservedGeneration = 1, 1
 			v.Status.Replicas, v.Status.ReadyReplicas, v.Status.UpdatedReplicas, v.Status.AvailableReplicas = 1, 1, 1, 1
 		case *appsv1.DaemonSet:
+			if o.ChartEnvArgs && v.Name == Prefix+"session-key-forwarder" {
+				for i := range v.Spec.Template.Spec.Containers {
+					UseChartEnvArgs(&v.Spec.Template.Spec.Containers[i])
+				}
+			}
 			v.Generation, v.Status.ObservedGeneration = 1, 1
 			v.Status.DesiredNumberScheduled, v.Status.NumberReady, v.Status.UpdatedNumberScheduled, v.Status.NumberAvailable = 2, 2, 2, 2
 		}

@@ -249,19 +249,33 @@ func qual(ns, name string) string {
 
 func linkedArgs(s *discovery.Snapshot) []finding.Finding {
 	var out []finding.Finding
+	var literal []discovery.Ref
 	for _, la := range model.LinkedArgs {
 		want := s.ConfigData[la.Setting]
 		for _, r := range s.ArgRefs(la.Flag) {
-			if r.Value != want {
+			// The kubelet expands $(VAR) from the container env at start, so compare what the
+			// process really gets (chart 1.2.0+ passes -server "$(SENSOR_HOST)" from the ConfigMap).
+			x := s.ExpandArg(r)
+			switch {
+			case !x.HasRefs:
+				literal = append(literal, r)
+				if r.Value != want {
+					out = append(out, f(finding.Warning, "config", "arg_drift", la.Setting,
+						fmt.Sprintf("%s passes %s %q but the ConfigMap's %s is %q. The two settings disagree.", r.Workload, la.Flag, r.Value, la.Setting, want),
+						"Save the setting in this app: it updates the ConfigMap and the args together."))
+				}
+			case !x.Resolved:
+				// Reads a Secret, fieldRef, another ConfigMap or an undefined var: cannot check.
+			case x.Value != want:
 				out = append(out, f(finding.Warning, "config", "arg_drift", la.Setting,
-					fmt.Sprintf("%s passes %s %q but the ConfigMap's %s is %q. The two settings disagree.", r.Workload, la.Flag, r.Value, la.Setting, want),
-					"Save the setting in this app: it updates the ConfigMap and the args together."))
+					fmt.Sprintf("%s passes %s %q, which expands to %q, but the ConfigMap's %s is %q. The two settings disagree.", r.Workload, la.Flag, r.Value, x.Value, la.Setting, want),
+					fmt.Sprintf("The arg reads its value from the container env; point that env var at the ConfigMap key %s.", la.Setting)))
 			}
 		}
 	}
-	if refs := s.ArgRefs("-server"); len(refs) > 0 {
+	if len(literal) > 0 {
 		out = append(out, f(finding.Info, "config", "args_not_from_configmap", "mgmtTarget",
-			fmt.Sprintf("%s takes the sensor address and TLS name as command-line args, not from the ConfigMap. This app keeps them in sync when you edit those settings; edits made by hand must change both.", strings.Join(discovery.WorkloadsUsing(refs), ", ")), ""))
+			fmt.Sprintf("%s takes the sensor address and TLS name as literal command-line args, not from the ConfigMap. This app keeps them in sync when you edit those settings; edits made by hand must change both.", strings.Join(discovery.WorkloadsUsing(literal), ", ")), ""))
 	}
 	return out
 }
