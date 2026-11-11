@@ -136,7 +136,7 @@ func container(spec *corev1.PodSpec, name string) *corev1.Container {
 func setArg(args []string, flag, value string) bool {
 	changed := false
 	for _, a := range discovery.ParseArgs(args) {
-		if a.Flag != flag || !a.HasValue || a.Value == value {
+		if a.Flag != flag || !a.HasValue || a.Value == value || strings.Contains(a.Value, "$(") {
 			continue
 		}
 		if a.Inline {
@@ -217,7 +217,10 @@ func (e *Engine) Plan(live *discovery.Snapshot, ch Change) (*Plan, error) {
 	p.cmChanged = len(changedKeys) > 0
 
 	// Linked args follow their setting (only when that setting is part of this change, so an
-	// unrelated edit never silently rewrites args).
+	// unrelated edit never silently rewrites args). Args that are $(VAR) references are left as
+	// written: the kubelet expands them from the env, so they follow the ConfigMap by themselves
+	// (or read something this app does not own), and turning them into literals would be drift
+	// against the chart.
 	for _, la := range model.LinkedArgs {
 		if !changedKeys[la.Setting] {
 			continue

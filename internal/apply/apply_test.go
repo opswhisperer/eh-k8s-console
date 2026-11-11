@@ -127,6 +127,46 @@ func TestSensorAddressChangeUpdatesLinkedArgsAndRestartsConsumers(t *testing.T) 
 	}
 }
 
+// With chart 1.2.0 the args are $(SENSOR_HOST) / $(SERVER_NAME_OVERRIDE) read from the
+// ConfigMap: a Save updates the ConfigMap only and never turns the references into literals
+// (that would be drift against the chart, which GitOps reverts).
+func TestSensorAddressChangeLeavesEnvRefArgsAlone(t *testing.T) {
+	e, cs, snap := setup(t, testfix.Options{ChartEnvArgs: true})
+	ctx := context.Background()
+	p, err := e.Plan(snap(), Change{Config: map[string]string{"mgmtTarget": "192.0.2.20", "serverNameOverride": "new.example.com"}, Reason: "new sensor"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Blocked || p.Empty {
+		t.Fatalf("plan blocked=%v (%s) empty=%v", p.Blocked, p.BlockReason, p.Empty)
+	}
+	for _, c := range p.Changes {
+		if strings.Contains(c.Field, " arg ") {
+			t.Errorf("env-ref arg must not be rewritten: %+v", c)
+		}
+	}
+	for _, f := range p.Introduced {
+		if f.Code == "arg_drift" {
+			t.Errorf("unexpected drift: %s", f.Message)
+		}
+	}
+	if _, ok := restartNames(p)[skf]; !ok {
+		t.Fatal("session-key-forwarder reads the ConfigMap through env and must restart")
+	}
+	if _, err := e.Apply(ctx, p, "rob", "apply"); err != nil {
+		t.Fatal(err)
+	}
+	ds, _ := cs.AppsV1().DaemonSets(testfix.NS).Get(ctx, skf, metav1.GetOptions{})
+	args := strings.Join(ds.Spec.Template.Spec.Containers[0].Args, " ")
+	if !strings.Contains(args, "-server $(SENSOR_HOST)") || !strings.Contains(args, "-server-name-override $(SERVER_NAME_OVERRIDE)") {
+		t.Fatalf("args were rewritten: %s", args)
+	}
+	cm, _ := cs.CoreV1().ConfigMaps(testfix.NS).Get(ctx, testfix.CM, metav1.GetOptions{})
+	if cm.Data["mgmtTarget"] != "192.0.2.20" || cm.Data["serverNameOverride"] != "new.example.com" {
+		t.Fatalf("ConfigMap not updated: %v", cm.Data)
+	}
+}
+
 func TestFilteringChangeRestartsOnlyCoordinator(t *testing.T) {
 	e, _, snap := setup(t, testfix.Options{})
 	p, err := e.Plan(snap(), Change{Config: map[string]string{"kubernetesNamespacedTrafficRule": "skip", "mirrorNamespaces": "apps default"}})

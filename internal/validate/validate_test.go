@@ -2,8 +2,11 @@ package validate_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
+
+	corev1 "k8s.io/api/core/v1"
 
 	"github.com/opswhisperer/eh-k8s-console/internal/discovery"
 	"github.com/opswhisperer/eh-k8s-console/internal/finding"
@@ -40,6 +43,57 @@ func TestBaselineIsClean(t *testing.T) {
 	}
 	if _, ok := codes(fs)["args_not_from_configmap/mgmtTarget"]; !ok {
 		t.Error("want the info finding about session-key-forwarder args")
+	}
+}
+
+// Chart 1.2.0 passes -server "$(SENSOR_HOST)" with SENSOR_HOST from the ConfigMap: the kubelet
+// expands it, so the args always agree with the ConfigMap.
+func TestChartEnvArgsAgreeWithConfigMap(t *testing.T) {
+	s := snap(t, testfix.Options{ChartEnvArgs: true})
+	fs := validate.Config(s, vopts)
+	for _, f := range fs {
+		if f.Severity != finding.Info {
+			t.Errorf("unexpected %s %s: %s", f.Severity, f.Code, f.Message)
+		}
+	}
+	if _, ok := codes(fs)["args_not_from_configmap/mgmtTarget"]; ok {
+		t.Error("args come from the ConfigMap through env; the literal-args info must not show")
+	}
+	p := s.Clone()
+	p.ConfigData["mgmtTarget"] = "192.0.2.99"
+	p.ConfigData["serverNameOverride"] = "other.example.com"
+	for _, f := range validate.Config(p, vopts) {
+		if f.Code == "arg_drift" {
+			t.Errorf("env-ref args follow the ConfigMap: %s", f.Message)
+		}
+	}
+}
+
+func TestEnvArgThatDisagreesStillWarns(t *testing.T) {
+	s := snap(t, testfix.Options{ChartEnvArgs: true})
+	c := &s.Workload(testfix.Prefix + "session-key-forwarder").PodSpec.Containers[0]
+	for i := range c.Env {
+		switch c.Env[i].Name {
+		case "SENSOR_HOST": // a literal that disagrees
+			c.Env[i].ValueFrom, c.Env[i].Value = nil, "198.51.100.1"
+		case "SERVER_NAME_OVERRIDE": // a Secret: cannot be checked, so no warning
+			c.Env[i].ValueFrom = &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "x"}, Key: "y"}}
+		}
+	}
+	s.RefreshRefs()
+	c2 := codes(validate.Config(s, vopts))
+	if f, ok := c2["arg_drift/mgmtTarget"]; !ok || f.Severity != finding.Warning || !strings.Contains(f.Message, "198.51.100.1") {
+		t.Errorf("want arg_drift for the mismatched env literal, got %+v", f)
+	}
+	if f, ok := c2["arg_drift/serverNameOverride"]; ok {
+		t.Errorf("an arg read from a Secret cannot be compared: %s", f.Message)
+	}
+}
+
+func TestLiteralArgThatDisagreesWarns(t *testing.T) {
+	s := snap(t, testfix.Options{MutateCM: func(d map[string]string) { d["serverNameOverride"] = "other.example.com" }})
+	if f, ok := codes(validate.Config(s, vopts))["arg_drift/serverNameOverride"]; !ok || f.Severity != finding.Warning {
+		t.Errorf("want arg_drift for a literal arg that disagrees, got %+v", f)
 	}
 }
 
