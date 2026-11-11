@@ -115,7 +115,7 @@ Keep your overlay (see [Install](install.md), step 1) in git, referencing a rele
 ```yaml
 # kustomization.yaml in your repository
 resources:
-  - https://github.com/opswhisperer/eh-k8s-console//deploy/base?ref=v0.1.6
+  - https://github.com/opswhisperer/eh-k8s-console//deploy/base?ref=v0.1.7
 configMapGenerator:
   - name: eh-k8s-console-config
     behavior: replace
